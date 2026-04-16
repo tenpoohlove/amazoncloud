@@ -67,6 +67,9 @@ def extract_asin(url: str) -> Optional[str]:
         r"/dp/([A-Z0-9]{10})",
         r"/gp/product/([A-Z0-9]{10})",
         r"asin=([A-Z0-9]{10})",
+        r"/product/([A-Z0-9]{10})",
+        r"[?&]ASIN=([A-Z0-9]{10})",
+        r"/([A-Z0-9]{10})(?:[/?]|$)",
     ]:
         m = re.search(pat, url)
         if m:

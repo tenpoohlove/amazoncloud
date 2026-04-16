@@ -61,10 +61,10 @@ with st.sidebar:
     st.header("⚙️ 設定")
 
     api_key_input = st.text_input(
-        "Anthropic APIキー",
+        "Gemini APIキー",
         type="password",
-        value=st.session_state.get("api_key") or os.getenv("ANTHROPIC_API_KEY", ""),
-        help="https://console.anthropic.com/ で取得できます",
+        value=st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY", ""),
+        help="https://aistudio.google.com/apikey で取得できます（無料）",
     )
     if api_key_input:
         st.session_state["api_key"] = api_key_input
@@ -72,13 +72,9 @@ with st.sidebar:
     if api_key_input:
         if st.button("🔌 接続確認", use_container_width=True):
             try:
-                import anthropic
-                c = anthropic.Anthropic(api_key=api_key_input)
-                c.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "hi"}],
-                )
+                from google import genai
+                c = genai.Client(api_key=api_key_input)
+                c.models.generate_content(model="gemini-2.5-flash", contents="hi")
                 st.success("✅ APIキーが有効です")
             except Exception as e:
                 st.error(f"❌ 接続エラー: {e}")
@@ -226,11 +222,11 @@ def show_input():
         st.error("URLからASIN（商品ID）を抽出できませんでした。商品ページのURLを確認してください。")
         return
 
-    api_key = st.session_state.get("api_key") or os.getenv("ANTHROPIC_API_KEY")
+    api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         st.error(
-            "Anthropic APIキーが未設定です。\n"
-            "サイドバーで入力するか、.env ファイルに ANTHROPIC_API_KEY を設定してください。"
+            "Gemini APIキーが未設定です。\n"
+            "サイドバーで入力するか、.env ファイルに GEMINI_API_KEY を設定してください。"
         )
         return
 
@@ -369,7 +365,7 @@ def show_deepdive():
     product_data = st.session_state["product_data"]
     ideas = st.session_state["ideas"]
     selected_id = st.session_state["selected_idea_id"]
-    api_key = st.session_state.get("api_key") or os.getenv("ANTHROPIC_API_KEY")
+    api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
 
     # 選択されたアイデアを取得
     idea = next((i for i in ideas if i["id"] == selected_id), None)
