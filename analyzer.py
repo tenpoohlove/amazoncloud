@@ -115,18 +115,17 @@ def _build_prompt(product_data: dict, difficulty_filter: int | None) -> str:
     main_reviews = product_data.get("reviews", [])
 
     # ── モード別: レビューテキストと収集説明 ────────
+    reviews_text = _format_reviews(main_reviews, max_count=200)
     if mode == "main_only":
-        reviews_text = _format_reviews(main_reviews, max_count=200)
         strategy_note = (
             f"モード: 対象商品のみ（チェックなし）\n"
-            f"  収集: ★1 優先（不足時★2補完）最大200件 → 取得 {len(main_reviews)}件"
+            f"  収集: 対象商品ページ表示分 → 取得 {len(main_reviews)}件"
         )
         similar_text = "（類似品レビューは収集していません）"
     else:
-        reviews_text = "（類似品モードのため対象商品レビューは収集していません）"
         strategy_note = (
             f"モード: 類似品含む（チェックあり）\n"
-            f"  収集: 類似品4商品 × ★1 各最大50件 = 合計最大200件"
+            f"  収集: 対象商品 {len(main_reviews)}件 + 類似品4商品 各8件程度"
         )
         similar_items = product_data.get("similar_data", [])
         similar_text = ""
@@ -155,6 +154,9 @@ def _build_prompt(product_data: dict, difficulty_filter: int | None) -> str:
 
 以下のAmazon商品データを分析し、「16-Word Sales Letter™」フレームワーク（Evaldo Albuquerque著）
 に基づいた新商品アイデアを10個提案してください。
+
+【カテゴリ制約・最重要】提案するアイデア10個は必ず「{title}」と完全に同じカテゴリ・用途に限定すること。
+カテゴリが異なる商品（アクセサリー・関連品・別ジャンル）は絶対に提案しないこと。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【分析対象商品】
@@ -236,8 +238,9 @@ URL: {url}
 ═══════════════════════════════════════════
 
 STEP 1 — レビューから痛点を抽出
-  ・「不満・不便・要望・改善希望」を最低15個抽出
-  ・メイン商品と競合に共通する不満を最優先
+  ・「対象商品（{title}）のレビュー」から不満・不便・要望を最低15個抽出（最優先）
+  ・次に「類似品のレビュー」から共通する痛点を追加（補足として使用）
+  ・抽出した痛点はすべて「{title}」カテゴリの商品改善に直結するものに限定
 
 STEP 2 — ニーズのクラスタリング
   ・「機能・デザイン・価格・耐久性・使いやすさ・付属品・梱包」等でグループ化
@@ -254,6 +257,8 @@ STEP 5 — 新規性アドバイス
   ・素材・製法・デザイン・機能・梱包・ターゲット変更など多角的に
 
 STEP 6 — Constitutional Review（自己審査）
+  □ 提案した10個すべてが「{title}」と同じカテゴリ・用途か確認
+  □ 無関係なカテゴリ・アクセサリー・別ジャンルのアイデアがあれば除外し同カテゴリで置き換える
   □ 実際のレビューから根拠を取れているか
   □ One Beliefの3要素が揃っているか
   □ Q4がQ1の逆転になっているか
@@ -281,7 +286,7 @@ STEP 6 — Constitutional Review（自己審査）
       "new_opportunity": "新しい機会（30文字以内・日本語）",
       "desire": "顧客の欲求（30文字以内・日本語）",
       "new_mechanism": "新メカニズム（30文字以内・日本語）",
-      "full_statement": "○○が△△への鍵であり、□□でしか手に入らない（80文字以内・日本語）"
+      "full_statement": "「〇〇を使えば、△△できる。それを実現するのが□□だ」のように、普通の日本語で読んで自然な一文（80文字以内）"
     }},
 
     "q1_novelty": "なぜ他と違うのか・USP（60文字以内）",
@@ -356,6 +361,11 @@ def analyze_and_generate_ideas(
     if len(ideas) < 10:
         print(f"[analyzer] 警告: {len(ideas)} 件のみ生成（期待値: 10）")
 
+    # 難易度順（★1→★5）でソートしてIDを振り直す
+    ideas.sort(key=lambda x: x.get("difficulty", 99))
+    for i, idea in enumerate(ideas, 1):
+        idea["id"] = i
+
     return ideas
 
 
@@ -407,8 +417,27 @@ def generate_deep_dive_content(
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
     title_main = product_data.get("title", "不明")
 
+    # Makuake参考データ取得（エラーは無視）
+    try:
+        from scraper import fetch_makuake_references
+        makuake_refs = fetch_makuake_references(n=2)
+        makuake_context = "\n".join(
+            f"【参考{i+1}】{r['title']}\n{r['catch']}\n{r['body']}"
+            for i, r in enumerate(makuake_refs)
+        ) if makuake_refs else ""
+    except Exception:
+        makuake_context = ""
+
+    makuake_section = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【Makuake売れ筋商品ページの参考（文章トーン・構成を参考にすること）】
+{makuake_context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""" if makuake_context else ""
+
     prompt = f"""あなたはクラウドファンディング専門のコピーライター兼マーケティング戦略家です。
 すべての出力は必ず日本語で書いてください。
+Makuakeで実際に売れた商品ページの文章トーン・構成を参考に、読んで「欲しい！」と感じさせる文章を書いてください。
 
 以下の新商品アイデアについて、クラウドファンディング用の詳細コンテンツを生成してください。
 
@@ -440,17 +469,17 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 【元商品情報】
 商品名: {title_main}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+{makuake_section}
 以下の4セクションを含むJSONを返してください。マークダウン・コードブロック不要。
 
 {{
   "catchcopy": [
-    "キャッチコピー案1（20〜40文字、感情に刺さるフレーズ）",
-    "キャッチコピー案2（別アングルで）",
-    "キャッチコピー案3（さらに別アングルで）"
+    "キャッチコピー案1（20〜40文字。読んだ瞬間に『欲しい』と思わせる。ベネフィット訴求型）",
+    "キャッチコピー案2（同文字数。問題解決・痛みを言語化するタイプ。共感型）",
+    "キャッチコピー案3（同文字数。未来の自分を想像させる変化訴求型）"
   ],
 
-  "sales_letter": "クラウドファンディング用の完全なセールスレター。以下の構成で散文（長文・読み物形式）で書く:\\n\\n【ヘッドライン】インパクトのある問いかけ（1〜2文）\\n\\n【オープニング】顧客の現状の問題・共感（3〜5文）\\n\\n【新しい機会の提示】なぜこれが解決策か・Q1新規性（3〜5文）\\n\\n【大きな約束】Q2ベネフィット・顧客が得る未来（3〜5文）\\n\\n【証拠・ストーリー】ABT構造の実証ストーリー・Q3（4〜6文）\\n\\n【真の問題の暴露】Q4＋Q5（あなたのせいじゃない）（3〜5文）\\n\\n【緊急性】Q6・今すぐCFを支援すべき理由（2〜3文）\\n\\n【信頼構築】Q7・なぜ信頼できるか（2〜4文）\\n\\n【仕組みの説明】Q8・どう機能するか（3〜5文）\\n\\n【オファー詳細】Q9・CF限定特典・早期割引・価値スタック（3〜5文）\\n\\n【クロージング】Q10・プッシュプル・最後の呼びかけ（3〜4文）",
+  "sales_letter": "クラウドファンディングページの本文として使える完全なセールスレター。読んだ人が『これ欲しい、今すぐ支援したい』と感じるように書く。論理ではなく感情で動かすこと。以下の構成で読み物として自然な日本語の散文で書く（見出しは【】で囲む）:\\n\\n【思わず手が止まる一文】読者が共感して『そう！まさにこれ！』となる強烈な問いかけか宣言（1〜2文）\\n\\n【あなたの話ですよね？】読者の日常のリアルな不満・もどかしさを言語化して共感を作る（3〜5文）\\n\\n【実は、解決策はもうある】このアイデアがなぜ今まで誰も気づかなかった答えなのか（3〜5文）\\n\\n【手に入れた未来を想像してください】使った後の生活・感情の変化を具体的に描写する（3〜5文）\\n\\n【信じられないかもしれませんが】実際の根拠・ストーリーで「本物感」を作る（4〜6文）\\n\\n【なぜ今まで解決できなかったのか】既存品の限界・業界の問題を暴く（3〜5文）\\n\\n【今だけのチャンス】CFだからこそ実現できる限定特典・今動く理由（2〜3文）\\n\\n【なぜ私たちを信頼できるか】開発背景・想い・実績（2〜4文）\\n\\n【どうやって実現するのか】仕組みをわかりやすく・納得感を作る（3〜5文）\\n\\n【あなたへの特別なオファー】CF支援者限定の価格・特典・リターンの価値を具体的金額で（3〜5文）\\n\\n【最後にひとつだけ】支援しない場合に失うものを示しつつ、温かく背中を押す（3〜4文）",
 
   "approach": {{
     "overview": "マーケティング全体戦略の概要（100文字以内）",
@@ -542,47 +571,60 @@ def generate_pdf_bytes(
 
     # ── フォント登録 ──────────────────────────────
     font_path = _get_jp_font_path()
+    fn, fnb = "Helvetica", "Helvetica-Bold"
     if font_path:
         try:
-            pdfmetrics.registerFont(TTFont("JP", font_path, subfontIndex=0))
-            pdfmetrics.registerFont(TTFont("JPB", font_path, subfontIndex=1))
+            pdfmetrics.registerFont(TTFont("JP", font_path))
+            pdfmetrics.registerFont(TTFont("JPB", font_path))
             fn, fnb = "JP", "JPB"
         except Exception:
-            fn, fnb = "Helvetica", "Helvetica-Bold"
-    else:
-        fn, fnb = "Helvetica", "Helvetica-Bold"
+            try:
+                pdfmetrics.registerFont(TTFont("JP", font_path, subfontIndex=0))
+                pdfmetrics.registerFont(TTFont("JPB", font_path, subfontIndex=0))
+                fn, fnb = "JP", "JPB"
+            except Exception:
+                pass
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
-        leftMargin=20 * mm,
-        rightMargin=20 * mm,
-        topMargin=20 * mm,
-        bottomMargin=20 * mm,
+        leftMargin=25 * mm,
+        rightMargin=25 * mm,
+        topMargin=25 * mm,
+        bottomMargin=25 * mm,
     )
 
-    W = A4[0] - 40 * mm  # usable width
+    W = A4[0] - 50 * mm  # usable width
 
     # ── スタイル定義 ──────────────────────────────
-    def _s(name, **kw) -> ParagraphStyle:
-        return ParagraphStyle(name, fontName=fn, **kw)
+    def _s(name, font=None, **kw) -> ParagraphStyle:
+        return ParagraphStyle(name, fontName=font or fn, **kw)
 
-    s_title  = _s("title",  fontName=fnb, fontSize=18, spaceAfter=4, textColor=colors.HexColor("#1a1a2e"))
-    s_sub    = _s("sub",    fontSize=9,  spaceAfter=12, textColor=colors.HexColor("#666666"))
-    s_h1     = _s("h1",     fontName=fnb, fontSize=13, spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#2c3e50"))
-    s_h2     = _s("h2",     fontName=fnb, fontSize=11, spaceBefore=6, spaceAfter=3, textColor=colors.HexColor("#34495e"))
-    s_body   = _s("body",   fontSize=9,  leading=15, spaceAfter=4)
-    s_bullet = _s("bullet", fontSize=9,  leading=14, leftIndent=12, spaceAfter=2)
-    s_box    = _s("box",    fontSize=9,  leading=15, leftIndent=8, rightIndent=8,
+    s_title  = _s("title",  font=fnb, fontSize=16, leading=24, spaceAfter=6,
+                  textColor=colors.HexColor("#1a1a2e"))
+    s_sub    = _s("sub",    fontSize=8, leading=13, spaceAfter=16,
+                  textColor=colors.HexColor("#888888"))
+    s_h1     = _s("h1",     font=fnb, fontSize=12, leading=18,
+                  spaceBefore=16, spaceAfter=8,
+                  textColor=colors.HexColor("#2c3e50"))
+    s_h2     = _s("h2",     font=fnb, fontSize=10, leading=16,
+                  spaceBefore=10, spaceAfter=5,
+                  textColor=colors.HexColor("#34495e"))
+    s_body   = _s("body",   fontSize=9, leading=16, spaceAfter=5)
+    s_bullet = _s("bullet", fontSize=9, leading=15, leftIndent=14,
+                  spaceAfter=3, firstLineIndent=0)
+    s_box    = _s("box",    fontSize=9, leading=15, spaceAfter=5,
+                  leftIndent=10, rightIndent=10,
                   backColor=colors.HexColor("#f0f4f8"), borderPadding=6)
 
     def hr():
-        return HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc"),
-                          spaceAfter=6, spaceBefore=6)
+        return HRFlowable(width="100%", thickness=0.5,
+                          color=colors.HexColor("#cccccc"),
+                          spaceAfter=8, spaceBefore=12)
 
     def section(title_text: str) -> list:
-        return [hr(), Paragraph(title_text, s_h1)]
+        return [Spacer(1, 6), hr(), Paragraph(title_text, s_h1)]
 
     # ── コンテンツ構築 ─────────────────────────────
     story = []
@@ -600,21 +642,26 @@ def generate_pdf_bytes(
     ob = idea.get("one_belief", {})
     diff = idea.get("difficulty", 1)
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
+    s_cell_h = _s("cell_h", font=fnb, fontSize=9, leading=15)
+    s_cell   = _s("cell",            fontSize=9, leading=15, wordWrap="CJK")
     idea_rows = [
-        ["No.", str(idea.get("id", ""))],
-        ["商品名", idea.get("title", "")],
-        ["難易度", f"{diff_info['label']} {diff_info['name']}"],
-        ["製造コスト", idea.get("estimated_cost", "")],
-        ["One Belief", ob.get("full_statement", "")],
+        [Paragraph("No.", s_cell_h),        Paragraph(str(idea.get("id", "")), s_cell)],
+        [Paragraph("商品名", s_cell_h),      Paragraph(idea.get("title", ""), s_cell)],
+        [Paragraph("難易度", s_cell_h),      Paragraph(f"{diff_info['label']} {diff_info['name']}", s_cell)],
+        [Paragraph("製造コスト", s_cell_h),  Paragraph(idea.get("estimated_cost", ""), s_cell)],
+        [Paragraph("コアメッセージ", s_cell_h), Paragraph(ob.get("full_statement", ""), s_cell)],
     ]
-    t = Table(idea_rows, colWidths=[28 * mm, W - 28 * mm])
+    t = Table(idea_rows, colWidths=[34 * mm, W - 34 * mm])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f4f8")),
-        ("FONTNAME",   (0, 0), (-1, -1), fn),
-        ("FONTSIZE",   (0, 0), (-1, -1), 9),
-        ("GRID",       (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
-        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
-        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#ffffff"), colors.HexColor("#f9f9f9")]),
+        ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#e8f4f8")),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [colors.HexColor("#ffffff"), colors.HexColor("#f9f9f9")]),
     ]))
     story.append(t)
 
@@ -650,6 +697,7 @@ def generate_pdf_bytes(
         val = approach.get(key, "")
         if val:
             story.append(Paragraph(label, s_h2))
+            val = "\n".join(val) if isinstance(val, list) else str(val)
             story.append(Paragraph(val.replace("\n", "<br/>"), s_body))
 
     # 5. 商品プロダクト
@@ -672,6 +720,7 @@ def generate_pdf_bytes(
         val = product.get(key, "")
         if val:
             story.append(Paragraph(label, s_h2))
+            val = "\n".join(val) if isinstance(val, list) else str(val)
             story.append(Paragraph(val.replace("\n", "<br/>"), s_body))
 
     # 6. Q1〜Q10（付録）
@@ -689,10 +738,10 @@ def generate_pdf_bytes(
         ["Q10 クロージング",idea.get("q10_pushpull", "")],
     ]
     qt = Table(
-        [[Paragraph(r[0], _s("qk", fontName=fnb, fontSize=8)),
-          Paragraph(r[1], _s("qv", fontName=fn, fontSize=8, leading=12))]
+        [[Paragraph(r[0], _s("qk", font=fnb, fontSize=8, leading=13)),
+          Paragraph(r[1], _s("qv", fontSize=8, leading=13, wordWrap="CJK"))]
          for r in q_rows],
-        colWidths=[32 * mm, W - 32 * mm],
+        colWidths=[34 * mm, W - 34 * mm],
     )
     qt.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eef2f7")),
