@@ -530,6 +530,31 @@ https://www.amazon.co.jp/dp/ASINXXXXXXX | 商品名
     return urls
 
 
+def _parse_review_lines(text: str) -> list[str]:
+    """箇条書きテキストからレビュー文字列リストを抽出する"""
+    results = []
+    for line in text.split("\n"):
+        line = line.strip()
+        m = re.match(r"^[・\-\*\d\.\)]\s*(.+)", line)
+        if m:
+            body = m.group(1).strip()
+            if len(body) > 10:
+                results.append(body)
+    return results
+
+
+def _dedup_reviews(existing: list[str], new_items: list[str]) -> list[str]:
+    """先頭15文字が一致するものを重複とみなして除外する"""
+    seen = {r[:15] for r in existing}
+    added = []
+    for item in new_items:
+        key = item[:15]
+        if key not in seen:
+            seen.add(key)
+            added.append(item)
+    return added
+
+
 def collect_reviews_via_gemini_search(
     title: str,
     api_key: str | None = None,
@@ -538,7 +563,7 @@ def collect_reviews_via_gemini_search(
     """
     Gemini の Google検索グラウンディング機能を使って
     Webからレビュー・口コミを収集する。
-    スクレイピング不要・ログイン不要・Amazonの制限を回避。
+    2回の検索（全評価 + 低評価特化）を行いマージ・重複除去する。
     """
     try:
         from google import genai
@@ -555,41 +580,47 @@ def collect_reviews_via_gemini_search(
         return []
     client = genai.Client(api_key=_api_key)
 
-    prompt = f"""「{title}」のユーザーレビュー・口コミをWeb検索して、
-以下の形式で日本語レビューを{target_count}件以上収集してください。
+    def _call(prompt: str) -> list[str]:
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=gtypes.GenerateContentConfig(
+                    tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                ),
+            )
+            return _parse_review_lines(resp.text.strip())
+        except Exception as e:
+            print(f"[scraper] Gemini search error: {e}")
+            return []
+
+    # ── 検索1: 全評価の口コミを幅広く収集 ──────────────
+    prompt_general = f"""「{title}」のユーザーレビュー・口コミをWeb検索して、
+日本語レビューを{target_count}件以上収集してください。
 
 【収集先】Amazon、楽天市場、価格.com、Yahoo!ショッピング、個人ブログ、SNSなどあらゆるソース
-
-【出力形式】1件1行、行頭に「・」をつけて、実際のユーザーの声（不満・良い点・気になった点）をそのまま引用または要約してください。
+【出力形式】1件1行、行頭に「・」をつけて、実際のユーザーの声をそのまま引用または要約。
 評価の高低に関わらず、できる限り多く（{target_count}件以上）集めてください。
 """
+    general = _call(prompt_general)
+    print(f"[scraper] Gemini検索①（全評価）: {len(general)}件")
 
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=gtypes.GenerateContentConfig(
-                tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
-            ),
-        )
-        text = resp.text.strip()
-    except Exception as e:
-        print(f"[scraper] Gemini search error: {e}")
-        return []
+    # ── 検索2: 不満・低評価・問題点に特化 ────────────
+    prompt_negative = f"""「{title}」について、**不満・問題点・デメリット・★1〜★3の低評価レビュー**をWeb検索して収集してください。
 
-    # 箇条書き行をパース
-    reviews = []
-    for line in text.split("\n"):
-        line = line.strip()
-        # 「・」「-」「*」「数字.」などで始まる行
-        m = re.match(r"^[・\-\*\d\.\)]\s*(.+)", line)
-        if m:
-            text_body = m.group(1).strip()
-            if len(text_body) > 10:
-                reviews.append({"star": 0, "text": text_body})
+【重点収集先】Amazon低評価レビュー、価格.com辛口レビュー、Twitter/X の不満投稿、比較記事のデメリット欄
+【出力形式】1件1行、行頭に「・」をつけて、実際のユーザーの不満・問題点・改善要望をそのまま引用または要約。
+できる限り多く（{target_count}件以上）集めてください。
+"""
+    negative_raw = _call(prompt_negative)
+    negative = _dedup_reviews(general, negative_raw)
+    print(f"[scraper] Gemini検索②（低評価特化）: {len(negative_raw)}件 → 重複除去後{len(negative)}件追加")
 
-    print(f"[scraper] Gemini検索レビュー: {len(reviews)}件取得")
+    all_texts = general + negative
+    reviews = [{"star": 0, "text": t} for t in all_texts]
+    print(f"[scraper] Gemini検索レビュー合計: {len(reviews)}件取得")
     return reviews
+
 
 
 # ─────────────────────────────────────────────
