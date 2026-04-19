@@ -97,13 +97,14 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("### ⚠️ Amazonブロックについて")
+    st.markdown("### ⚠️ 類似品件数について")
     st.warning(
-        "Amazonはスクレイピングをブロックすることがあります。\n\n"
-        "対処法:\n"
+        "**類似品は最大20件までを推奨します。**\n\n"
+        "20件を超えると短時間に大量のリクエストが発生し、"
+        "Amazonのボット検知によりアクセスがブロックされるリスクが高まります。\n\n"
+        "ブロックされた場合の対処法:\n"
         "1. しばらく待って再試行\n"
-        "2. VPNを使用\n"
-        "3. ScraperAPI などを利用"
+        "2. 類似品件数を減らして再試行"
     )
 
 
@@ -170,7 +171,7 @@ def show_input():
             placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
         )
 
-        col_diff, col_sim, col_hint = st.columns([2, 1, 2])
+        col_diff, col_sim, col_hint = st.columns([2, 2, 2])
         with col_diff:
             diff_options = get_difficulty_options()
             selected_diff = st.selectbox(
@@ -180,15 +181,17 @@ def show_input():
                 index=0,
             )
         with col_sim:
-            st.markdown("　")
-            include_similar = st.checkbox(
-                "類似品も含める",
-                value=True,
-                help=(
-                    "チェックあり: 同ページに表示されている類似品（最大4件）の"
-                    "★1〜★2レビューも収集します。\n"
-                    "チェックなし: 対象商品★1×200件（高速）。"
-                ),
+            _sim_options = {
+                0:  "0件（対象商品のみ）⚡ 約30秒",
+                5:  "5件（+40件）約1〜2分",
+                10: "10件（+80件）約3〜4分",
+                20: "20件（+160件）約6〜8分",
+            }
+            sim_count = st.selectbox(
+                "🔍 類似品レビュー数",
+                options=list(_sim_options.keys()),
+                format_func=lambda x: _sim_options[x],
+                index=1,
             )
         with col_hint:
             st.markdown("")
@@ -196,10 +199,12 @@ def show_input():
                 "★1=製造1万円以内　★2=5万円以内　★3=10万円以内\n"
                 "★4=金型など新規設備必要　★5=50万円以上"
             )
-            if include_similar:
+            if sim_count == 0:
+                st.caption("⚡ 対象商品のみ: 高速モード")
+            elif sim_count <= 10:
                 st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
             else:
-                st.caption("⚡ 類似品なし: 高速モード")
+                st.caption("🔴 類似品20件: Amazonのボット検知リスクあり（最大推奨）")
 
         submitted = st.form_submit_button(
             "🔍 アイデアを生成する",
@@ -238,7 +243,7 @@ def show_input():
         status_text.text(f"⏳ {msg}")
 
     try:
-        product_data = scrape_all(url, include_similar=include_similar, progress_callback=update_progress)
+        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress)
         update_progress("AIがアイデアを生成中...", 85)
         diff_filter = selected_diff if selected_diff > 0 else None
         ideas = analyze_and_generate_ideas(product_data, diff_filter, api_key)

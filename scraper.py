@@ -29,7 +29,7 @@ from typing import Optional
 # ─────────────────────────────────────────────
 MAX_MAIN_REVIEWS  = 8     # 対象商品レビュー上限（/dp/ ページは8件固定）
 MAX_SIM_REVIEWS   = 8     # 類似品1件あたりの上限（同上）
-MAX_SIM_PRODUCTS  = 4     # チェックあり: 類似品の収集件数（合計最大40件）
+MAX_SIM_PRODUCTS  = 22    # ページから収集するURL上限（scrape_all で実際の件数を制御する）
 
 # Amazon.co.jp の /dp/ ページは filterByStar・pageNumber に関わらず同じ8件を返す
 # /product-reviews/ はログイン必須。これ以上は取得不可。
@@ -300,21 +300,19 @@ def scrape_all(
     url: str,
     include_similar: bool = True,
     progress_callback=None,
+    max_similar_products: int = 0,
 ) -> dict:
     """
     Amazon URL を受け取り商品情報・レビューを収集する。
 
-    include_similar=False (チェックなし):
-      対象商品の ★1 レビュー最大200件
-
-    include_similar=True (チェックあり):
-      類似品4商品 × ★1 最大50件ずつ = 合計最大200件
+    max_similar_products=0: 対象商品のみ（高速モード）
+    max_similar_products=N: 類似品N件 × 8件ずつ収集
 
     Returns dict:
       {
         asin, url, title, description, bullets, total_reviews,
         reviews        : list[{"star": int, "text": str}],
-        similar_data   : list[{url, asin, title, reviews}],  # チェックありのみ
+        similar_data   : list[{url, asin, title, reviews}],
         sources        : list[{url, title, asin, type, type_label,
                                stars_collected, review_count, total_on_amazon}],
         include_similar: bool,
@@ -324,6 +322,11 @@ def scrape_all(
     asin = extract_asin(url)
     if not asin:
         raise ValueError(f"ASIN を URL から抽出できませんでした: {url}")
+
+    # include_similar フラグとの後方互換性
+    if max_similar_products == 0 and include_similar:
+        max_similar_products = 5  # 旧デフォルト相当
+    n_similar = max_similar_products
 
     domain = _domain(url)
     session = requests.Session(impersonate="chrome124")
@@ -339,11 +342,11 @@ def scrape_all(
     _prog("対象商品のページを解析中...", 5)
     product = scrape_product_page(url, session)
     product["asin"] = asin
-    product["include_similar"] = include_similar
-    product["mode"] = "with_similar" if include_similar else "main_only"
+    product["include_similar"] = n_similar > 0
+    product["mode"] = "with_similar" if n_similar > 0 else "main_only"
 
     # ── モード分岐 ────────────────────────────────────
-    if not include_similar:
+    if n_similar == 0:
         # ────────────────────────────────────────────
         # チェックなし: Amazon(8件) + Gemini検索(100件)
         # ────────────────────────────────────────────
@@ -372,7 +375,7 @@ def scrape_all(
 
     else:
         # ────────────────────────────────────────────
-        # チェックあり: Amazon(8件) + Gemini検索(100件) + 類似品4商品
+        # 類似品モード: Amazon(8件) + Gemini検索 + 類似品n_similar商品
         # ────────────────────────────────────────────
         _prog("対象商品のレビューを収集中（Amazon）...", 5)
         amz_reviews = collect_reviews(asin, domain, session)
@@ -387,20 +390,20 @@ def scrape_all(
         related = [u for u in product["related_urls"] if extract_asin(u) != asin]
 
         # 類似品が不足している場合、Gemini検索で他ブランドを補完
-        if len(related) < MAX_SIM_PRODUCTS:
+        if len(related) < n_similar:
             _prog("Gemini検索で他ブランドの類似品を探索中...", 14)
             existing = {extract_asin(u) for u in related} | {asin}
-            gem_sims = find_similar_products_via_gemini(product["title"], domain)
+            gem_sims = find_similar_products_via_gemini(product["title"], domain, target_count=n_similar + 2)
             for gu in gem_sims:
                 ga = extract_asin(gu)
                 if ga and ga not in existing:
                     existing.add(ga)
                     related.append(gu)
-                    if len(related) >= MAX_SIM_PRODUCTS:
+                    if len(related) >= n_similar:
                         break
             _prog(f"類似品 計{len(related)}商品（ページ取得＋Gemini検索）", 15)
 
-        targets = related[:MAX_SIM_PRODUCTS]
+        targets = related[:n_similar]
         _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
 
         similar_data = []
@@ -409,7 +412,7 @@ def scrape_all(
             if not sim_asin:
                 continue
             try:
-                pct = 15 + int(i / MAX_SIM_PRODUCTS * 60)
+                pct = 15 + int(i / max(n_similar, 1) * 60)
                 _prog(f"類似品 {i+1}/{len(targets)}「{sim_url[-30:]}」を収集中...", pct)
 
                 sim_page = scrape_product_page(sim_url, session)
