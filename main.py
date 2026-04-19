@@ -239,7 +239,7 @@ def show_input():
         status_text.text(f"⏳ {msg}")
 
     try:
-        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress)
+        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress, api_key=api_key)
         update_progress("AIがアイデアを生成中...", 85)
         diff_filter = selected_diff if selected_diff > 0 else None
         ideas = analyze_and_generate_ideas(product_data, diff_filter, api_key)

@@ -301,6 +301,7 @@ def scrape_all(
     include_similar: bool = True,
     progress_callback=None,
     max_similar_products: int = 0,
+    api_key: str | None = None,
 ) -> dict:
     """
     Amazon URL を受け取り商品情報・レビューを収集する。
@@ -390,7 +391,7 @@ def scrape_all(
         # Gemini検索のみで類似品を収集（ページスクレイピング由来は無関係商品が混じるため使わない）
         _prog("Gemini検索で類似品を探索中...", 14)
         related = find_similar_products_via_gemini(
-            product["title"], domain, target_count=n_similar, existing_asins={asin}
+            product["title"], domain, api_key=api_key, target_count=n_similar, existing_asins={asin}
         )
         _prog(f"類似品 {len(related)}商品 取得", 15)
 
