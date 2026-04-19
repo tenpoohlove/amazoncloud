@@ -97,12 +97,9 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("### ⚠️ 類似品件数について")
+    st.markdown("### ⚠️ Amazonブロックについて")
     st.warning(
-        "**類似品は最大20件までを推奨します。**\n\n"
-        "20件を超えると短時間に大量のリクエストが発生し、"
-        "Amazonのボット検知によりアクセスがブロックされるリスクが高まります。\n\n"
-        "ブロックされた場合の対処法:\n"
+        "スクレイピングがブロックされた場合:\n"
         "1. しばらく待って再試行\n"
         "2. 類似品件数を減らして再試行"
     )
@@ -183,9 +180,9 @@ def show_input():
         with col_sim:
             _sim_options = {
                 0:  "0件（対象商品のみ）⚡ 約30秒",
-                5:  "5件（+40件）約1〜2分",
-                10: "10件（+80件）約3〜4分",
-                20: "20件（+160件）約6〜8分",
+                5:  "5件（+40件）約1分",
+                10: "10件（+80件）約1.5分",
+                20: "20件（+160件）約2〜3分",
             }
             sim_count = st.selectbox(
                 "🔍 類似品レビュー数",
@@ -193,6 +190,7 @@ def show_input():
                 format_func=lambda x: _sim_options[x],
                 index=1,
             )
+            st.caption("※ 20件超はAmazonのボット検知リスクが高まるため、上限を20件に設定しています。")
         with col_hint:
             st.markdown("")
             st.caption(
@@ -201,10 +199,8 @@ def show_input():
             )
             if sim_count == 0:
                 st.caption("⚡ 対象商品のみ: 高速モード")
-            elif sim_count <= 10:
-                st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
             else:
-                st.caption("🔴 類似品20件: Amazonのボット検知リスクあり（最大推奨）")
+                st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
         submitted = st.form_submit_button(
             "🔍 アイデアを生成する",
