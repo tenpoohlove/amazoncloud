@@ -387,21 +387,12 @@ def scrape_all(
         product["gemini_review_count"] = len(gemini_reviews)
         _prog(f"対象商品レビュー 合計{len(main_reviews)}件 取得完了", 13)
 
-        related = [u for u in product["related_urls"] if extract_asin(u) != asin]
-
-        # 類似品が不足している場合、Gemini検索で他ブランドを補完
-        if len(related) < n_similar:
-            _prog("Gemini検索で他ブランドの類似品を探索中...", 14)
-            existing = {extract_asin(u) for u in related} | {asin}
-            gem_sims = find_similar_products_via_gemini(product["title"], domain, target_count=n_similar + 2)
-            for gu in gem_sims:
-                ga = extract_asin(gu)
-                if ga and ga not in existing:
-                    existing.add(ga)
-                    related.append(gu)
-                    if len(related) >= n_similar:
-                        break
-            _prog(f"類似品 計{len(related)}商品（ページ取得＋Gemini検索）", 15)
+        # Gemini検索のみで類似品を収集（ページスクレイピング由来は無関係商品が混じるため使わない）
+        _prog("Gemini検索で類似品を探索中...", 14)
+        related = find_similar_products_via_gemini(
+            product["title"], domain, target_count=n_similar, existing_asins={asin}
+        )
+        _prog(f"類似品 {len(related)}商品 取得", 15)
 
         targets = related[:n_similar]
         _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
@@ -469,10 +460,11 @@ def find_similar_products_via_gemini(
     domain: str = "https://www.amazon.co.jp",
     api_key: str | None = None,
     target_count: int = 6,
+    existing_asins: set | None = None,
 ) -> list[str]:
     """
     Gemini検索で同カテゴリ他ブランド商品のAmazon URLを取得する。
-    比較テーブルが同ブランドばかりの場合の補完に使う。
+    target_count に達するまで最大3回リトライする。
     """
     try:
         from google import genai
@@ -487,49 +479,67 @@ def find_similar_products_via_gemini(
         return []
 
     client = genai.Client(api_key=_api_key)
-    prompt = f"""「{title}」と同じカテゴリ・用途の他ブランドのAmazon.co.jp商品を{target_count}件、Google検索で探してください。
+    seen_asins: set[str] = set(existing_asins or [])
+    urls: list[str] = []
+
+    for attempt in range(3):
+        remaining = target_count - len(urls)
+        if remaining <= 0:
+            break
+
+        exclude_note = ""
+        if urls:
+            collected = ", ".join(u.split("/dp/")[1] for u in urls)
+            exclude_note = f"\n※ 以下のASINは既に取得済みなので除外してください: {collected}"
+
+        prompt = f"""「{title}」と同じカテゴリ・用途の他ブランドのAmazon.co.jp商品を{remaining}件、Google検索で探してください。
 
 条件:
 - 元商品と全く同じ用途・カテゴリの商品のみ（アクセサリー・ケース・関連品は除外）
-- 元商品のブランドとは異なるブランドを優先
+- 元商品のブランドとは異なる別ブランドの商品
 - Amazon.co.jp の商品ページURL（/dp/ASIN形式）を必ず含める
+- できるだけ異なるブランドから選ぶ{exclude_note}
 
 出力形式（1商品1行）:
 https://www.amazon.co.jp/dp/ASINXXXXXXX | 商品名
 """
 
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=gtypes.GenerateContentConfig(
-                tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
-            ),
-        )
-        text = resp.text.strip()
-    except Exception as e:
-        print(f"[scraper] Gemini similar search error: {e}")
-        return []
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=gtypes.GenerateContentConfig(
+                    tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                ),
+            )
+            text = resp.text.strip()
+        except Exception as e:
+            print(f"[scraper] Gemini similar search error (attempt {attempt+1}): {e}")
+            break
 
-    seen_asins: set[str] = set()
-    urls: list[str] = []
-    for m in re.finditer(r"amazon\.co\.jp/(?:dp|gp/product)/([A-Z0-9]{10})", text):
-        a = m.group(1)
-        if a not in seen_asins:
-            seen_asins.add(a)
-            urls.append(f"{domain}/dp/{a}")
-            if len(urls) >= target_count:
-                break
-    if not urls:
-        for m in re.finditer(r"\b(B0[A-Z0-9]{8})\b", text):
+        found_this_round = 0
+        for m in re.finditer(r"amazon\.co\.jp/(?:dp|gp/product)/([A-Z0-9]{10})", text):
             a = m.group(1)
             if a not in seen_asins:
                 seen_asins.add(a)
                 urls.append(f"{domain}/dp/{a}")
+                found_this_round += 1
                 if len(urls) >= target_count:
                     break
+        if not found_this_round:
+            for m in re.finditer(r"\b(B0[A-Z0-9]{8})\b", text):
+                a = m.group(1)
+                if a not in seen_asins:
+                    seen_asins.add(a)
+                    urls.append(f"{domain}/dp/{a}")
+                    found_this_round += 1
+                    if len(urls) >= target_count:
+                        break
 
-    print(f"[scraper] Gemini類似品検索: {len(urls)}件取得")
+        print(f"[scraper] Gemini類似品検索 attempt {attempt+1}: {found_this_round}件取得 (合計{len(urls)}件)")
+        if found_this_round == 0:
+            break
+
     return urls
 
 

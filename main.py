@@ -327,11 +327,10 @@ def show_ideas():
                     st.markdown(f"{icon} **[{label}]** {title_s}")
                     st.caption(f"ASIN: `{asin_s}`　｜　[Amazonで確認]({url_s})")
                 with cb:
-                    st.markdown(f"収集レビュー数: **{count}件**")
+                    st.markdown(f"取得レビュー: **{count}件**")
                 with cc:
-                    if total_amz > 0 and count > 0:
-                        coverage = min(100, round(count / total_amz * 100))
-                        st.progress(coverage / 100, text=f"収集率 {coverage}%")
+                    if total_amz > 0:
+                        st.caption(f"Amazon総レビュー数: {total_amz}件")
                     elif count == 0:
                         st.caption("ページ情報のみ")
                 st.divider()
