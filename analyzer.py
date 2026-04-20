@@ -537,15 +537,20 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 # PDF生成
 # ─────────────────────────────────────────────
 def _get_jp_font_path() -> str | None:
-    """Windowsシステムから日本語フォントファイルを探す"""
+    """日本語フォントファイルを探す（Windows / Linux両対応）"""
     candidates = [
+        # Windows
         "C:/Windows/Fonts/meiryo.ttc",
         "C:/Windows/Fonts/msgothic.ttc",
         "C:/Windows/Fonts/YuGothL.ttc",
         "C:/Windows/Fonts/yugothic.ttf",
         "C:/Windows/Fonts/yumin.ttf",
+        # Linux (Noto CJK - packages.txt で apt install)
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     ]
-    import os
     for p in candidates:
         if os.path.exists(p):
             return p
