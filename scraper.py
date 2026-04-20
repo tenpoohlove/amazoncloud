@@ -390,13 +390,23 @@ def scrape_all(
 
         # Gemini検索のみで類似品を収集（ページスクレイピング由来は無関係商品が混じるため使わない）
         _prog("Gemini検索で類似品を探索中...", 14)
-        related = find_similar_products_via_gemini(
-            product["title"], domain, api_key=api_key, target_count=n_similar, existing_asins={asin}
-        )
-        _prog(f"類似品 {len(related)}商品 取得", 15)
+        try:
+            related = find_similar_products_via_gemini(
+                product["title"], domain, api_key=api_key, target_count=n_similar, existing_asins={asin}
+            )
+        except Exception as e:
+            _prog(f"[ERROR] 類似品Gemini検索失敗: {e}", 14)
+            related = []
+        _prog(f"類似品 {len(related)}商品 取得（api_key={'あり' if api_key else 'なし'}）", 15)
 
         targets = related[:n_similar]
         _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
+
+        # 元商品タイトルのキーワード（3文字以上の日本語トークン）を抽出してフィルタリングに使う
+        main_keywords = {
+            t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', product["title"])
+            if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
+        }
 
         similar_data = []
         for i, sim_url in enumerate(targets):
@@ -408,19 +418,27 @@ def scrape_all(
                 _prog(f"類似品 {i+1}/{len(targets)}「{sim_url[-30:]}」を収集中...", pct)
 
                 sim_page = scrape_product_page(sim_url, session)
+                sim_title = sim_page.get("title", "")
                 sim_total = sim_page.get("total_reviews", 0)
+
+                # タイトルが元商品と全く無関係なら除外（ハルシネーションASIN対策）
+                if main_keywords:
+                    sim_words = set(re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', sim_title))
+                    if not (main_keywords & sim_words):
+                        print(f"[scraper] カテゴリ不一致スキップ: {sim_title[:40]}")
+                        continue
 
                 sim_reviews = collect_reviews(sim_asin, domain, session)
 
                 similar_data.append({
                     "url": sim_url,
                     "asin": sim_asin,
-                    "title": sim_page.get("title", "不明"),
+                    "title": sim_title,
                     "reviews": sim_reviews,
                 })
                 sources.append({
                     "url": sim_url,
-                    "title": sim_page.get("title", "不明"),
+                    "title": sim_title,
                     "asin": sim_asin,
                     "type": "similar",
                     "type_label": "類似品",
@@ -493,16 +511,19 @@ def find_similar_products_via_gemini(
             collected = ", ".join(u.split("/dp/")[1] for u in urls)
             exclude_note = f"\n※ 以下のASINは既に取得済みなので除外してください: {collected}"
 
-        prompt = f"""「{title}」と同じカテゴリ・用途の他ブランドのAmazon.co.jp商品を{remaining}件、Google検索で探してください。
+        prompt = f"""以下の商品の競合商品を{remaining}件、Google検索で探してください。
 
-条件:
-- 元商品と全く同じ用途・カテゴリの商品のみ（アクセサリー・ケース・関連品は除外）
-- 元商品のブランドとは異なる別ブランドの商品
-- Amazon.co.jp の商品ページURL（/dp/ASIN形式）を必ず含める
-- できるだけ異なるブランドから選ぶ{exclude_note}
+【対象商品】: {title}
+
+【絶対に守ること】
+- ASINを推測・生成しないでください。必ずGoogle検索でAmazon.co.jpの実際のページを確認してからURLを出力してください
+- 対象商品と全く同じカテゴリ・用途の商品のみ（対象商品がスーツケースならスーツケースのみ）
+- 音楽・書籍・食品・映像・ゲーム等の全く異なるジャンルは絶対に除外
+- 対象商品と異なるブランドの商品
+- Amazon.co.jpで実際に販売されている商品のURL{exclude_note}
 
 出力形式（1商品1行）:
-https://www.amazon.co.jp/dp/ASINXXXXXXX | 商品名
+https://www.amazon.co.jp/dp/ASIN10桁 | 商品名
 """
 
         try:
@@ -515,8 +536,8 @@ https://www.amazon.co.jp/dp/ASINXXXXXXX | 商品名
             )
             text = resp.text.strip()
         except Exception as e:
-            print(f"[scraper] Gemini similar search error (attempt {attempt+1}): {e}")
-            break
+            print(f"[scraper] Gemini similar search error (attempt {attempt+1}): {e}", flush=True)
+            raise  # 上位のtry-exceptに伝播させてprogress経由で表示
 
         found_this_round = 0
         for m in re.finditer(r"amazon\.co\.jp/(?:dp|gp/product)/([A-Z0-9]{10})", text):
