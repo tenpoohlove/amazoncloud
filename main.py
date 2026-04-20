@@ -49,6 +49,7 @@ for _k, _v in [
     ("selected_idea_id", None),
     ("deep_dive_cache", {}),     # {idea_id: deep_dive_dict}
     ("api_key", ""),
+    ("last_error", ""),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -161,6 +162,12 @@ def show_input():
         "新商品アイデア10個を1分以内で生成。気になるアイデアはさらに深掘りできます。"
     )
 
+    if st.session_state.get("last_error"):
+        st.error(f"前回のエラー: {st.session_state['last_error']}")
+        if st.button("🔄 もう一度試す", type="secondary"):
+            st.session_state["last_error"] = ""
+            st.rerun()
+
     with st.form("main_form"):
         url = st.text_input(
             "🔗 Amazon 商品URL",
@@ -272,11 +279,13 @@ def show_input():
         progress_bar.empty()
         status_text.empty()
         st.error(f"スクレイピングエラー: {e}")
+        st.session_state["last_error"] = str(e)
         return
     except Exception as e:
         progress_bar.empty()
         status_text.empty()
         st.error(f"エラーが発生しました: {e}")
+        st.session_state["last_error"] = str(e)
         return
 
     # ステージ遷移
@@ -363,6 +372,26 @@ def show_ideas():
 
     # ── カードグリッド ───────────────────────────
     st.divider()
+
+    # 保存ボタン
+    import json as _json
+    from datetime import datetime as _dt
+    _save_col1, _save_col2 = st.columns([3, 1])
+    with _save_col2:
+        _save_data = {
+            "generated_at": _dt.now().strftime("%Y-%m-%d %H:%M"),
+            "product": product_data.get("title", ""),
+            "asin": product_data.get("asin", ""),
+            "ideas": ideas,
+        }
+        st.download_button(
+            label="💾 アイデアをJSONで保存",
+            data=_json.dumps(_save_data, ensure_ascii=False, indent=2),
+            file_name=f"ideas_{product_data.get('asin','unknown')}_{_dt.now().strftime('%Y%m%d_%H%M')}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
     st.markdown("#### 気になるアイデアの **🔍 深堀する** をクリックしてください")
     st.caption("16-Word Sales Letter™ フレームワーク準拠　｜　One Belief + Q1〜Q10")
 

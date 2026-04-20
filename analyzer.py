@@ -421,7 +421,12 @@ def generate_deep_dive_content(
     # Makuake参考データ取得（エラーは無視）
     try:
         from scraper import fetch_makuake_references
-        makuake_refs = fetch_makuake_references(n=2)
+        category_words = [
+            t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', title_main)
+            if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
+        ][:2]
+        makuake_keyword = " ".join(category_words) if category_words else ""
+        makuake_refs = fetch_makuake_references(keyword=makuake_keyword, n=2)
         makuake_context = "\n".join(
             f"【参考{i+1}】{r['title']}\n{r['catch']}\n{r['body']}"
             for i, r in enumerate(makuake_refs)

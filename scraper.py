@@ -482,8 +482,11 @@ def scrape_all(
 
                 # タイトルが元商品と全く無関係なら除外（ハルシネーションASIN対策）
                 if main_keywords:
+                    # トークン完全一致 OR いずれかのキーワードがタイトルに含まれる
                     sim_words = set(re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', sim_title))
-                    if not (main_keywords & sim_words):
+                    token_match = bool(main_keywords & sim_words)
+                    substr_match = any(kw in sim_title for kw in main_keywords)
+                    if not (token_match or substr_match):
                         print(f"[scraper] カテゴリ不一致スキップ: {sim_title[:40]}")
                         continue
 
@@ -724,35 +727,65 @@ def collect_reviews_via_gemini_search(
 # ─────────────────────────────────────────────
 # Makuakeページ取得
 # ─────────────────────────────────────────────
-_MAKUAKE_URLS = [
-    "https://www.makuake.com/project/weecap/",
-    "https://www.makuake.com/project/mobi-lock2/",
-    "https://www.makuake.com/project/orbitkey3/",
-    "https://www.makuake.com/project/couverture/",
-    "https://www.makuake.com/project/colofly/",
-]
-
-def fetch_makuake_references(n: int = 3) -> list[dict]:
-    """Makuakeの売れ筋商品ページからCFページの構成・文章パターンを取得する。"""
+def fetch_makuake_references(keyword: str = "", n: int = 2) -> list[dict]:
+    """
+    キーワードでMakuakeを検索し、関連する成功プロジェクトの文章を取得する。
+    検索失敗時は固定URLにフォールバック。
+    """
     session = requests.Session(impersonate="chrome124")
-    results = []
-    for url in _MAKUAKE_URLS[:n]:
+    project_urls = []
+
+    # Makuake検索でキーワード関連プロジェクトURLを収集
+    if keyword:
+        from urllib.parse import quote
+        search_url = f"https://www.makuake.com/search/project/?word={quote(keyword)}&sort=funded_ratio"
         try:
-            resp = session.get(url, timeout=20)
+            time.sleep(random.uniform(1.0, 2.0))
+            resp = session.get(search_url, headers=_headers(), timeout=20)
             soup = BeautifulSoup(resp.text, "lxml")
-            # タイトル
+            for a in soup.find_all("a", href=re.compile(r"/project/[^/]+/$")):
+                href = a["href"]
+                full = href if href.startswith("http") else f"https://www.makuake.com{href}"
+                if full not in project_urls:
+                    project_urls.append(full)
+                if len(project_urls) >= n * 2:
+                    break
+            print(f"[scraper] Makuake検索「{keyword}」: {len(project_urls)}件のプロジェクト発見")
+        except Exception as e:
+            print(f"[scraper] Makuake検索エラー: {e}")
+
+    # フォールバック: 固定URL補完
+    _FALLBACK = [
+        "https://www.makuake.com/project/weecap/",
+        "https://www.makuake.com/project/mobi-lock2/",
+        "https://www.makuake.com/project/orbitkey3/",
+        "https://www.makuake.com/project/couverture/",
+        "https://www.makuake.com/project/colofly/",
+    ]
+    for u in _FALLBACK:
+        if u not in project_urls:
+            project_urls.append(u)
+        if len(project_urls) >= n * 3:
+            break
+
+    results = []
+    for url in project_urls[:n * 2]:  # 多めに試してn件集まるまで
+        if len(results) >= n:
+            break
+        try:
+            time.sleep(random.uniform(0.8, 1.5))
+            resp = session.get(url, headers=_headers(), timeout=20)
+            soup = BeautifulSoup(resp.text, "lxml")
             title_el = soup.find("h1") or soup.find("title")
             title = title_el.get_text(strip=True)[:80] if title_el else ""
-            # キャッチコピー的なサブタイトル
             catch_el = soup.find("p", class_=re.compile(r"catch|subtitle|lead", re.I))
             catch = catch_el.get_text(strip=True)[:150] if catch_el else ""
-            # 本文テキスト（最初の600文字）
             body_els = soup.find_all("p")
             body_texts = [p.get_text(strip=True) for p in body_els if len(p.get_text(strip=True)) > 30]
             body = "\n".join(body_texts[:8])[:600]
             if title:
                 results.append({"url": url, "title": title, "catch": catch, "body": body})
-            time.sleep(1.0)
         except Exception:
             continue
+
     return results
