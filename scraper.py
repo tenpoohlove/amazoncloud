@@ -94,6 +94,53 @@ def _is_blocked(text: str) -> bool:
 
 
 # ─────────────────────────────────────────────
+# Amazon検索結果ページから商品URLを収集
+# ─────────────────────────────────────────────
+def scrape_amazon_search(
+    keyword: str,
+    domain: str,
+    session: requests.Session,
+    max_urls: int = 20,
+    exclude_asins: set | None = None,
+) -> list[str]:
+    """
+    amazon.co.jp/s?k=キーワード から実在する商品URLを取得する。
+    1ページで最大48件のオーガニック結果が得られる。
+    """
+    from urllib.parse import quote
+    exclude_asins = set(exclude_asins or [])
+    seen = set(exclude_asins)
+    urls = []
+
+    search_url = f"{domain}/s?k={quote(keyword)}&language=ja_JP"
+    try:
+        time.sleep(random.uniform(1.5, 2.5))
+        resp = session.get(search_url, headers=_headers(), timeout=30)
+        resp.raise_for_status()
+        if _is_blocked(resp.text):
+            print(f"[scraper] Amazon検索ブロック検出: {keyword}")
+            return []
+    except Exception as e:
+        print(f"[scraper] Amazon検索エラー: {e}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    divs = soup.find_all("div", attrs={"data-component-type": "s-search-result"})
+    for d in divs:
+        if "AdHolder" in d.get("class", []):
+            continue
+        asin = d.get("data-asin", "").strip()
+        if asin and asin not in seen:
+            seen.add(asin)
+            urls.append(f"{domain}/dp/{asin}")
+            if len(urls) >= max_urls:
+                break
+
+    print(f"[scraper] Amazon検索「{keyword}」: {len(urls)}件取得")
+    return urls
+
+
+# ─────────────────────────────────────────────
 # 商品ページ取得
 # ─────────────────────────────────────────────
 def scrape_product_page(url: str, session: requests.Session) -> dict:
@@ -388,10 +435,19 @@ def scrape_all(
         product["gemini_review_count"] = len(gemini_reviews)
         _prog(f"対象商品レビュー 合計{len(main_reviews)}件 取得完了", 13)
 
-        # ページスクレイピングで類似品URLを取得（本物のURL）
-        _prog("ページから類似品URLを収集中...", 14)
-        related = [u for u in product["related_urls"] if extract_asin(u) != asin]
-        _prog(f"類似品 {len(related)}商品 取得（ページスクレイピング）", 15)
+        # Amazon検索で類似品URLを取得（実在するURL、ハルシネーションなし）
+        category_words = [
+            t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', product["title"])
+            if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
+        ][:3]
+        search_keyword = " ".join(category_words) if category_words else product["title"][:20]
+        _prog(f"Amazon検索「{search_keyword}」で類似品を収集中...", 14)
+        related = scrape_amazon_search(
+            search_keyword, domain, session,
+            max_urls=n_similar + 5,
+            exclude_asins={asin},
+        )
+        _prog(f"類似品候補 {len(related)}商品 取得", 15)
 
         targets = related[:n_similar]
         _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
