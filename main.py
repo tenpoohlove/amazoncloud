@@ -289,12 +289,8 @@ def show_ideas():
     similar_data = product_data.get("similar_data", [])
     sim_rev_total = sum(len(s["reviews"]) for s in similar_data)
 
-    amz_cnt = product_data.get("amazon_review_count", 0)
-    gem_cnt = product_data.get("gemini_review_count", 0)
-    review_breakdown = (
-        f"Amazon **{amz_cnt}件** + Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
-        if amz_cnt or gem_cnt else f"取得レビュー: **{main_rev_count}件**"
-    )
+    amz_cnt = product_data.get("amazon_review_count", main_rev_count)
+    review_breakdown = f"Amazon総レビュー数: **{amz_cnt}件**"
     if mode == "main_only":
         st.info(
             f"**収集モード:** ⚡ 対象商品のみ　｜　"

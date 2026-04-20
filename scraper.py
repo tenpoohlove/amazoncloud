@@ -400,12 +400,9 @@ def scrape_all(
         # ────────────────────────────────────────────
         _prog("対象商品のレビューを収集中（Amazon）...", 10)
         amz_reviews = collect_reviews(asin, domain, session)
-        _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 25)
-        gemini_reviews = collect_reviews_via_gemini_search(product["title"])
-        main_reviews = amz_reviews + gemini_reviews
+        main_reviews = amz_reviews
         product["amazon_review_count"] = len(amz_reviews)
-        product["gemini_review_count"] = len(gemini_reviews)
-        _prog(f"対象商品レビュー 合計{len(main_reviews)}件 取得完了", 75)
+        _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 75)
 
         product["reviews"] = main_reviews
         product["similar_data"] = []
@@ -427,13 +424,10 @@ def scrape_all(
         # ────────────────────────────────────────────
         _prog("対象商品のレビューを収集中（Amazon）...", 5)
         amz_reviews = collect_reviews(asin, domain, session)
-        _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 8)
-        gemini_reviews = collect_reviews_via_gemini_search(product["title"])
-        main_reviews = amz_reviews + gemini_reviews
+        main_reviews = amz_reviews
         product["reviews"] = main_reviews
         product["amazon_review_count"] = len(amz_reviews)
-        product["gemini_review_count"] = len(gemini_reviews)
-        _prog(f"対象商品レビュー 合計{len(main_reviews)}件 取得完了", 13)
+        _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 13)
 
         # Amazon検索で類似品URLを取得（実在するURL、ハルシネーションなし）
         category_words = [
