@@ -607,27 +607,27 @@ def generate_pdf_bytes(
     def _s(name, font=None, **kw) -> ParagraphStyle:
         return ParagraphStyle(name, fontName=font or fn, **kw)
 
-    s_title  = _s("title",  font=fnb, fontSize=16, leading=24, spaceAfter=6,
+    s_title  = _s("title",  font=fnb, fontSize=17, leading=26, spaceAfter=6,
                   textColor=colors.HexColor("#1a1a2e"))
-    s_sub    = _s("sub",    fontSize=8, leading=13, spaceAfter=16,
+    s_sub    = _s("sub",    fontSize=9, leading=14, spaceAfter=18,
                   textColor=colors.HexColor("#888888"))
-    s_h1     = _s("h1",     font=fnb, fontSize=12, leading=18,
-                  spaceBefore=16, spaceAfter=8,
+    s_h1     = _s("h1",     font=fnb, fontSize=13, leading=20,
+                  spaceBefore=20, spaceAfter=10,
                   textColor=colors.HexColor("#2c3e50"))
-    s_h2     = _s("h2",     font=fnb, fontSize=10, leading=16,
-                  spaceBefore=10, spaceAfter=5,
+    s_h2     = _s("h2",     font=fnb, fontSize=11, leading=18,
+                  spaceBefore=12, spaceAfter=6,
                   textColor=colors.HexColor("#34495e"))
-    s_body   = _s("body",   fontSize=9, leading=16, spaceAfter=5)
-    s_bullet = _s("bullet", fontSize=9, leading=15, leftIndent=14,
-                  spaceAfter=3, firstLineIndent=0)
-    s_box    = _s("box",    fontSize=9, leading=15, spaceAfter=5,
+    s_body   = _s("body",   fontSize=10, leading=18, spaceAfter=6)
+    s_bullet = _s("bullet", fontSize=10, leading=18, leftIndent=14,
+                  spaceAfter=4, firstLineIndent=0)
+    s_box    = _s("box",    fontSize=10, leading=18, spaceAfter=6,
                   leftIndent=10, rightIndent=10,
-                  backColor=colors.HexColor("#f0f4f8"), borderPadding=6)
+                  backColor=colors.HexColor("#f0f4f8"), borderPadding=8)
 
     def hr():
         return HRFlowable(width="100%", thickness=0.5,
                           color=colors.HexColor("#cccccc"),
-                          spaceAfter=8, spaceBefore=12)
+                          spaceAfter=10, spaceBefore=14)
 
     def section(title_text: str) -> list:
         return [Spacer(1, 6), hr(), Paragraph(title_text, s_h1)]
@@ -648,8 +648,8 @@ def generate_pdf_bytes(
     ob = idea.get("one_belief", {})
     diff = idea.get("difficulty", 1)
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
-    s_cell_h = _s("cell_h", font=fnb, fontSize=9, leading=15)
-    s_cell   = _s("cell",            fontSize=9, leading=15, wordWrap="CJK")
+    s_cell_h = _s("cell_h", font=fnb, fontSize=10, leading=17)
+    s_cell   = _s("cell",            fontSize=10, leading=17, wordWrap="CJK")
     idea_rows = [
         [Paragraph("No.", s_cell_h),        Paragraph(str(idea.get("id", "")), s_cell)],
         [Paragraph("商品名", s_cell_h),      Paragraph(idea.get("title", ""), s_cell)],
@@ -661,13 +661,13 @@ def generate_pdf_bytes(
     t = Table(idea_rows, colWidths=[34 * mm, W - 34 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#e8f4f8")),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("FONTSIZE",      (0, 0), (-1, -1), 10),
         ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
         ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
         ("ROWBACKGROUNDS",(0, 0), (-1, -1), [colors.HexColor("#ffffff"), colors.HexColor("#f9f9f9")]),
     ]))
     story.append(t)
@@ -745,15 +745,19 @@ def generate_pdf_bytes(
         ["Q10 クロージング",idea.get("q10_pushpull", "")],
     ]
     qt = Table(
-        [[Paragraph(r[0], _s("qk", font=fnb, fontSize=8, leading=13)),
-          Paragraph(r[1], _s("qv", fontSize=8, leading=13, wordWrap="CJK"))]
+        [[Paragraph(r[0], _s("qk", font=fnb, fontSize=10, leading=16)),
+          Paragraph(r[1], _s("qv", fontSize=10, leading=16, wordWrap="CJK"))]
          for r in q_rows],
         colWidths=[34 * mm, W - 34 * mm],
     )
     qt.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eef2f7")),
-        ("GRID",       (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
-        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#eef2f7")),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
         ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#ffffff"), colors.HexColor("#f9f9f9")]),
     ]))
     story.append(qt)
