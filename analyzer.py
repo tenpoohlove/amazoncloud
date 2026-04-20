@@ -361,8 +361,9 @@ def analyze_and_generate_ideas(
     if len(ideas) < 10:
         print(f"[analyzer] 警告: {len(ideas)} 件のみ生成（期待値: 10）")
 
-    # 難易度順（★1→★5）でソートしてIDを振り直す
+    # 難易度順（★1→★5）でソートしてIDを振り直し、10件に統一
     ideas.sort(key=lambda x: x.get("difficulty", 99))
+    ideas = ideas[:10]
     for i, idea in enumerate(ideas, 1):
         idea["id"] = i
 
