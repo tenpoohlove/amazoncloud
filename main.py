@@ -147,6 +147,8 @@ def _idea_card(idea: dict, col):
                 unsafe_allow_html=True,
             )
             st.caption(f"🔑 {idea.get('q1_novelty', '—')[:60]}")
+            if idea.get("evidence"):
+                st.caption(f"📝 根拠レビュー: {idea['evidence'][:60]}")
             if st.button("🔍 深堀する", key=f"detail_{idea['id']}", use_container_width=True):
                 return True
     return False
@@ -445,7 +447,7 @@ def show_deepdive():
         f"分析商品: {product_data['title'][:50]}　｜　"
         f"難易度: {diff_info['label']} {diff_info['name']}　｜　"
         f"製造コスト: {idea.get('estimated_cost', '—')}　｜　"
-        f"使用LLM: claude-sonnet-4-6"
+        f"使用LLM: Gemini 2.5 Flash"
     )
     st.info(f"💡 このアイデアのコアメッセージ：「{ob.get('full_statement', '—')}」")
 
@@ -573,6 +575,16 @@ def show_deepdive():
                     )
                 else:
                     st.write(idea.get(q, "—"))
+
+        if idea.get("evidence"):
+            st.divider()
+            st.markdown(
+                f"<div style='background:#f8f9fa;padding:10px 14px;border-radius:6px;"
+                f"border-left:4px solid #6c757d;font-size:13px;color:#555'>"
+                f"📝 <b>根拠レビュー:</b> {idea['evidence']}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
     # ── Tab 3: アプローチ方法 ─────────────────────
     with tab_approach:

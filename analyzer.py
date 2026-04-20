@@ -656,6 +656,7 @@ def generate_pdf_bytes(
         [Paragraph("難易度", s_cell_h),      Paragraph(f"{diff_info['label']} {diff_info['name']}", s_cell)],
         [Paragraph("製造コスト", s_cell_h),  Paragraph(idea.get("estimated_cost", ""), s_cell)],
         [Paragraph("コアメッセージ", s_cell_h), Paragraph(ob.get("full_statement", ""), s_cell)],
+        [Paragraph("根拠レビュー", s_cell_h),   Paragraph(idea.get("evidence", ""), s_cell)],
     ]
     t = Table(idea_rows, colWidths=[34 * mm, W - 34 * mm])
     t.setStyle(TableStyle([
