@@ -202,6 +202,29 @@ def show_input():
             else:
                 st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
+        st.markdown("##### 📝 レビュー収集モード")
+        review_mode = st.radio(
+            "レビュー収集モード",
+            options=["amazon", "gemini"],
+            format_func=lambda x: (
+                "🛒 Amazonレビューのみ（実レビュー・高速）"
+                if x == "amazon" else
+                "🔍 Gemini Web検索レビュー込み（大量収集・低速）"
+            ),
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        if review_mode == "amazon":
+            st.caption(
+                "※ Amazonの仕様により、ログインなしでは★1などの星指定フィルタリングができません。"
+                "Amazonが自動表示した順で最大8件/商品を取得します。"
+            )
+        else:
+            st.caption(
+                "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
+                "AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。"
+            )
+
         submitted = st.form_submit_button(
             "🔍 アイデアを生成する",
             use_container_width=True,
@@ -239,7 +262,7 @@ def show_input():
         status_text.text(f"⏳ {msg}")
 
     try:
-        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress, api_key=api_key)
+        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress, api_key=api_key, use_gemini_reviews=(review_mode == "gemini"))
         update_progress("AIがアイデアを生成中...", 85)
         diff_filter = selected_diff if selected_diff > 0 else None
         ideas = analyze_and_generate_ideas(product_data, diff_filter, api_key)
@@ -290,7 +313,14 @@ def show_ideas():
     sim_rev_total = sum(len(s["reviews"]) for s in similar_data)
 
     amz_cnt = product_data.get("amazon_review_count", main_rev_count)
-    review_breakdown = f"Amazon総レビュー数: **{amz_cnt}件**"
+    gem_cnt = product_data.get("gemini_review_count", 0)
+    if gem_cnt:
+        review_breakdown = f"Amazon **{amz_cnt}件** + Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
+    else:
+        review_breakdown = (
+            f"Amazon **{amz_cnt}件**"
+            f"　※Amazonの仕様で★指定不可・自動表示順を取得"
+        )
     if mode == "main_only":
         st.info(
             f"**収集モード:** ⚡ 対象商品のみ　｜　"

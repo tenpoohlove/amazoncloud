@@ -349,6 +349,7 @@ def scrape_all(
     progress_callback=None,
     max_similar_products: int = 0,
     api_key: str | None = None,
+    use_gemini_reviews: bool = False,
 ) -> dict:
     """
     Amazon URL を受け取り商品情報・レビューを収集する。
@@ -400,7 +401,14 @@ def scrape_all(
         # ────────────────────────────────────────────
         _prog("対象商品のレビューを収集中（Amazon）...", 10)
         amz_reviews = collect_reviews(asin, domain, session)
-        main_reviews = amz_reviews
+        if use_gemini_reviews:
+            _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 25)
+            gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
+            product["gemini_review_count"] = len(gemini_reviews)
+        else:
+            gemini_reviews = []
+            product["gemini_review_count"] = 0
+        main_reviews = amz_reviews + gemini_reviews
         product["amazon_review_count"] = len(amz_reviews)
         _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 75)
 
@@ -424,7 +432,14 @@ def scrape_all(
         # ────────────────────────────────────────────
         _prog("対象商品のレビューを収集中（Amazon）...", 5)
         amz_reviews = collect_reviews(asin, domain, session)
-        main_reviews = amz_reviews
+        if use_gemini_reviews:
+            _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 8)
+            gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
+            product["gemini_review_count"] = len(gemini_reviews)
+        else:
+            gemini_reviews = []
+            product["gemini_review_count"] = 0
+        main_reviews = amz_reviews + gemini_reviews
         product["reviews"] = main_reviews
         product["amazon_review_count"] = len(amz_reviews)
         _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 13)
