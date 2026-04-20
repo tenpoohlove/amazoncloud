@@ -388,16 +388,10 @@ def scrape_all(
         product["gemini_review_count"] = len(gemini_reviews)
         _prog(f"対象商品レビュー 合計{len(main_reviews)}件 取得完了", 13)
 
-        # Gemini検索のみで類似品を収集（ページスクレイピング由来は無関係商品が混じるため使わない）
-        _prog("Gemini検索で類似品を探索中...", 14)
-        try:
-            related = find_similar_products_via_gemini(
-                product["title"], domain, api_key=api_key, target_count=n_similar, existing_asins={asin}
-            )
-        except Exception as e:
-            _prog(f"[ERROR] 類似品Gemini検索失敗: {e}", 14)
-            related = []
-        _prog(f"類似品 {len(related)}商品 取得（api_key={'あり' if api_key else 'なし'}）", 15)
+        # ページスクレイピングで類似品URLを取得（本物のURL）
+        _prog("ページから類似品URLを収集中...", 14)
+        related = [u for u in product["related_urls"] if extract_asin(u) != asin]
+        _prog(f"類似品 {len(related)}商品 取得（ページスクレイピング）", 15)
 
         targets = related[:n_similar]
         _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
@@ -511,19 +505,23 @@ def find_similar_products_via_gemini(
             collected = ", ".join(u.split("/dp/")[1] for u in urls)
             exclude_note = f"\n※ 以下のASINは既に取得済みなので除外してください: {collected}"
 
-        prompt = f"""以下の商品の競合商品を{remaining}件、Google検索で探してください。
+        # 商品タイトルからカテゴリキーワードだけ抽出（長いブランド名等を除いてシンプルに）
+        category_words = [
+            t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', title)
+            if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
+        ][:3]
+        category_hint = " ".join(category_words) if category_words else title[:20]
 
-【対象商品】: {title}
+        prompt = f"""Google検索で「{category_hint} site:amazon.co.jp」を検索して、検索結果に表示されたAmazon.co.jpの商品ページURLを{remaining}件収集してください。
 
-【絶対に守ること】
-- ASINを推測・生成しないでください。必ずGoogle検索でAmazon.co.jpの実際のページを確認してからURLを出力してください
-- 対象商品と全く同じカテゴリ・用途の商品のみ（対象商品がスーツケースならスーツケースのみ）
-- 音楽・書籍・食品・映像・ゲーム等の全く異なるジャンルは絶対に除外
-- 対象商品と異なるブランドの商品
-- Amazon.co.jpで実際に販売されている商品のURL{exclude_note}
+【重要】
+- Google検索結果に実際に表示されたURLのみ出力してください（URLを自分で作らないこと）
+- amazon.co.jp/dp/で始まる商品ページURLのみ
+- 「{category_hint}」カテゴリの商品のみ（全く異なる商品は除外）
+- 元商品「{title[:30]}」と異なるブランドを優先{exclude_note}
 
 出力形式（1商品1行）:
-https://www.amazon.co.jp/dp/ASIN10桁 | 商品名
+https://www.amazon.co.jp/dp/ASIN | 商品名
 """
 
         try:
