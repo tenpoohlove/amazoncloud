@@ -135,7 +135,7 @@ def _idea_card(idea: dict, col):
             )
             st.markdown(
                 f"<div style='font-weight:bold;font-size:15px;margin-bottom:6px'>"
-                f"No.{idea['id']:02d}　{idea['title']}"
+                f"No.{idea.get('id', 0):02d}　{idea.get('title', '（タイトルなし）')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
