@@ -1,13 +1,6 @@
 """
 main.py: クラウドファンディング新商品アイデアジェネレーター（Streamlit UI）
 
-【2ステージ構成】
-  Stage 1: URL入力 → スクレイピング → 10アイデアカード表示（1分以内）
-  Stage 2: アイデア選択 → 詳細ページ（4タブ: 経歴/セールス文章/アプローチ/商品）
-           → PDF出力
-
-フレームワーク: The 16-Word Sales Letter™ (Evaldo Albuquerque)
-
 起動方法:
     streamlit run main.py
 """
@@ -17,16 +10,22 @@ from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
+import extra_streamlit_components as stx
+import auth
 from scraper import scrape_all, extract_asin
 from analyzer import (
     analyze_and_generate_ideas,
     generate_deep_dive_content,
     generate_pdf_bytes,
-    get_difficulty_options,
     DIFFICULTY,
 )
 
 load_dotenv()
+auth.init_db()
+
+@st.cache_resource
+def _get_cookie_manager():
+    return stx.CookieManager(key="session_cookie")
 
 # ─────────────────────────────────────────────
 # ページ設定
@@ -42,72 +41,35 @@ st.set_page_config(
 # セッション初期化
 # ─────────────────────────────────────────────
 for _k, _v in [
-    ("stage", "input"),          # "input" | "ideas" | "deepdive"
+    ("stage", "input"),
     ("product_data", None),
     ("ideas", None),
     ("url", ""),
     ("selected_idea_id", None),
-    ("deep_dive_cache", {}),     # {idea_id: deep_dive_dict}
+    ("deep_dive_cache", {}),
     ("api_key", ""),
     ("last_error", ""),
+    ("user", None),
+    ("api_test_result", None),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
 # ─────────────────────────────────────────────
-# サイドバー
+# メール認証トークン処理
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ 設定")
-
-    api_key_input = st.text_input(
-        "Gemini APIキー",
-        type="password",
-        value=st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY", ""),
-        help="https://aistudio.google.com/apikey で取得できます（無料）",
-    )
-    if api_key_input:
-        st.session_state["api_key"] = api_key_input
-
-    if api_key_input:
-        if st.button("🔌 接続確認", use_container_width=True):
-            try:
-                from google import genai
-                c = genai.Client(api_key=api_key_input)
-                c.models.generate_content(model="gemini-2.5-flash", contents="hi")
-                st.success("✅ APIキーが有効です")
-            except Exception as e:
-                st.error(f"❌ 接続エラー: {e}")
-
-    st.divider()
-    st.markdown("### 📊 難易度の定義")
-    for k, v in DIFFICULTY.items():
-        st.markdown(f"**{v['label']} {v['name']}**  \n{v['desc']}")
-        st.markdown("")
-
-    st.divider()
-    st.markdown("### 📖 16-Word Sales Letter™")
-    st.info(
-        "**One Belief の公式:**\n\n"
-        "「[新しい機会] が [顧客の欲求] への鍵であり、\n"
-        "[新メカニズム] でしか手に入らない」\n\n"
-        "**10の質問:**\n"
-        "Q1 新規性  Q2 ベネフィット  Q3 証拠\n"
-        "Q4 真の問題  Q5 共通の敵  Q6 緊急性\n"
-        "Q7 信頼  Q8 仕組み  Q9 オファー  Q10 クロージング"
-    )
-
-    st.divider()
-    st.markdown("### ⚠️ Amazonブロックについて")
-    st.warning(
-        "スクレイピングがブロックされた場合:\n"
-        "1. しばらく待って再試行\n"
-        "2. 類似品件数を減らして再試行"
-    )
+verify_token = st.query_params.get("verify_token", "")
+if verify_token:
+    if auth.verify_email_token(verify_token):
+        st.query_params.clear()
+        st.success("✅ メール認証が完了しました！ログインしてください。")
+    else:
+        st.query_params.clear()
+        st.error("認証リンクが無効または期限切れです。再度ご登録ください。")
 
 
 # ─────────────────────────────────────────────
-# ヘルパー関数
+# ヘルパー
 # ─────────────────────────────────────────────
 _DIFF_ICON = {1: "🟢", 2: "🔵", 3: "🟡", 4: "🟠", 5: "🔴"}
 _DIFF_COLOR = {
@@ -117,7 +79,6 @@ _DIFF_COLOR = {
 
 
 def _idea_card(idea: dict, col):
-    """アイデアカードをカラムに描画する。詳細ボタンが押されたら True を返す。"""
     diff = idea.get("difficulty", 1)
     icon = _DIFF_ICON.get(diff, "⚪")
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
@@ -127,42 +88,149 @@ def _idea_card(idea: dict, col):
     with col:
         with st.container(border=True):
             st.markdown(
-                f"<div style='font-size:11px;color:#666;margin-bottom:4px'>"
+                f"<div style='font-size:12px;margin-bottom:6px'>"
                 f"{icon} {diff_info['label']} {diff_info['name']}　"
                 f"｜　製造コスト: {idea.get('estimated_cost', '—')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-weight:bold;font-size:15px;margin-bottom:6px'>"
+                f"<div style='font-weight:bold;font-size:20px;margin-bottom:8px'>"
                 f"No.{idea.get('id', 0):02d}　{idea.get('title', '（タイトルなし）')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-size:12px;color:#444;background:{bg};"
-                f"padding:6px 10px;border-radius:6px;margin-bottom:6px'>"
+                f"<div style='font-size:13px;color:#1a1a1a;background:{bg};"
+                f"padding:8px 12px;border-radius:6px;margin-bottom:8px'>"
                 f"💡 {ob.get('full_statement', '—')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
-            st.caption(f"🔑 {idea.get('q1_novelty', '—')[:60]}")
+            st.markdown(
+                f"<div style='font-size:13px;margin-bottom:4px'>"
+                f"🔑 {idea.get('q1_novelty', '—')[:60]}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
             if idea.get("evidence"):
-                st.caption(f"📝 根拠レビュー: {idea['evidence'][:60]}")
-            if st.button("🔍 深堀する", key=f"detail_{idea['id']}", use_container_width=True):
+                st.markdown(
+                    f"<div style='font-size:12px;margin-bottom:4px'>"
+                    f"📝 根拠レビュー: {idea['evidence'][:60]}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            if st.button("🔍 深堀する", key=f"detail_{idea['id']}",
+                         use_container_width=True, type="primary"):
                 return True
     return False
 
 
 # ─────────────────────────────────────────────
-# Stage: input（入力フォーム）
+# 認証画面（未ログイン時）
 # ─────────────────────────────────────────────
-def show_input():
+def show_auth():
     st.title("💡 クラファン新商品アイデアジェネレーター")
-    st.caption(
-        "Amazon商品URLを貼るだけで、**16-Word Sales Letter™** フレームワーク準拠の"
-        "新商品アイデア10個を1分以内で生成。気になるアイデアはさらに深掘りできます。"
-    )
+    st.markdown("---")
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        tab_login, tab_register = st.tabs(["ログイン", "新規登録"])
+
+        with tab_login:
+            st.markdown("#### ログイン")
+            with st.form("login_form"):
+                email = st.text_input("メールアドレス", placeholder="example@email.com")
+                password = st.text_input("パスワード", type="password")
+                submitted = st.form_submit_button(
+                    "ログイン", use_container_width=True, type="primary"
+                )
+            if submitted:
+                if not email or not password:
+                    st.error("メールアドレスとパスワードを入力してください。")
+                else:
+                    user, err = auth.authenticate(email, password)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["user"] = user
+                        saved_key = auth.get_user_api_key(user["id"])
+                        if saved_key:
+                            st.session_state["api_key"] = saved_key
+                        # Cookieにセッション保存（30日間）
+                        token = auth.create_session(user["id"], days=30)
+                        cm = _get_cookie_manager()
+                        cm.set("st_session", token, key="set_login")
+                        st.rerun()
+
+        with tab_register:
+            st.markdown("#### 新規アカウント登録")
+            with st.form("register_form"):
+                r_name = st.text_input("お名前", placeholder="山田 太郎")
+                r_email = st.text_input("メールアドレス", placeholder="example@email.com")
+                r_phone = st.text_input("電話番号", placeholder="090-0000-0000")
+                r_pass = st.text_input("パスワード（8文字以上）", type="password")
+                r_pass2 = st.text_input("パスワード（確認）", type="password")
+                r_newsletter = st.checkbox("オニオンリンクからのお知らせメールを受け取る")
+                r_terms = st.checkbox("利用規約に同意する（必須）")
+                submitted_r = st.form_submit_button(
+                    "登録する", use_container_width=True, type="primary"
+                )
+            if submitted_r:
+                if not all([r_name, r_email, r_phone, r_pass, r_pass2]):
+                    st.error("すべての項目を入力してください。")
+                elif not r_terms:
+                    st.error("利用規約への同意が必要です。")
+                elif len(r_pass) < 8:
+                    st.error("パスワードは8文字以上にしてください。")
+                elif r_pass != r_pass2:
+                    st.error("パスワードが一致しません。")
+                else:
+                    ok, token_or_err = auth.create_user(
+                        r_email, r_phone, r_name, r_pass, r_newsletter
+                    )
+                    if not ok:
+                        st.error(token_or_err)
+                    else:
+                        base_url = os.getenv("BASE_URL", "http://localhost:8501")
+                        sent, _ = auth.send_verification_email(
+                            r_email, r_name, token_or_err, base_url
+                        )
+                        if sent:
+                            st.success(
+                                f"✅ 登録完了！{r_email} に確認メールを送りました。"
+                            )
+                        else:
+                            verify_url = f"{base_url}?verify_token={token_or_err}"
+                            st.success("✅ 登録完了！")
+                            st.info(
+                                f"以下のリンクをクリックしてメール認証を完了してください:\n\n"
+                                f"[✅ メールアドレスを確認する]({verify_url})"
+                            )
+
+
+# ─────────────────────────────────────────────
+# ページ: ホーム（input / ideas / deepdive）
+# ─────────────────────────────────────────────
+def page_home():
+    stage = st.session_state.get("stage", "input")
+    if stage == "input":
+        _show_input()
+    elif stage == "ideas":
+        _show_ideas()
+    elif stage == "deepdive":
+        _show_deepdive()
+    else:
+        st.session_state["stage"] = "input"
+        st.rerun()
+
+
+def _show_input():
+    st.title("💡 クラファン新商品アイデアジェネレーター")
+    st.caption("Amazon商品URLを貼るだけで新商品アイデア10個を生成。気になるアイデアはさらに深掘りできます。")
+
+    api_key_check = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
+    if not api_key_check:
+        st.warning("⚠️ Gemini APIキーが未設定です。左メニューの「設定」から設定してください。")
 
     if st.session_state.get("last_error"):
         st.error(f"前回のエラー: {st.session_state['last_error']}")
@@ -177,15 +245,19 @@ def show_input():
             placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
         )
 
-        col_diff, col_sim, col_hint = st.columns([2, 2, 2])
+        col_diff, col_sim, col_mode = st.columns([2, 2, 2])
+
         with col_diff:
-            diff_options = get_difficulty_options()
-            selected_diff = st.selectbox(
-                "📊 難易度フィルター",
-                options=list(diff_options.keys()),
-                format_func=lambda x: diff_options[x],
-                index=0,
+            st.markdown(
+                "**📊 難易度フィルター**　"
+                "<span style='font-size:11px;opacity:0.6'>（未選択 = すべて）</span>",
+                unsafe_allow_html=True,
             )
+            selected_diffs = []
+            for k, v in DIFFICULTY.items():
+                if st.checkbox(f"★{k} {v['name']}", help=v["desc"], key=f"diff_cb_{k}"):
+                    selected_diffs.append(k)
+
         with col_sim:
             _sim_options = {
                 0:  "0件（対象商品のみ）⚡ 約30秒",
@@ -199,13 +271,10 @@ def show_input():
                 format_func=lambda x: _sim_options[x],
                 index=1,
             )
-            st.caption("※ 20件超はAmazonのボット検知リスクが高まるため、上限を20件に設定しています。")
-        with col_hint:
+            st.caption("※ 20件超はAmazonのボット検知リスクが高まるため上限を20件に設定しています。")
+
+        with col_mode:
             st.markdown("")
-            st.caption(
-                "★1=製造1万円以内　★2=5万円以内　★3=10万円以内\n"
-                "★4=金型など新規設備必要　★5=50万円以上"
-            )
             if sim_count == 0:
                 st.caption("⚡ 対象商品のみ: 高速モード")
             else:
@@ -223,27 +292,19 @@ def show_input():
             horizontal=True,
             label_visibility="collapsed",
         )
-        if review_mode == "amazon":
-            st.caption(
-                "※ Amazonの仕様により、ログインなしでは★1などの星指定フィルタリングができません。"
-                "Amazonが自動表示した順で最大8件/商品を取得します。"
-            )
-        else:
+        if review_mode == "gemini":
             st.caption(
                 "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
                 "AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。"
             )
 
         submitted = st.form_submit_button(
-            "🔍 アイデアを生成する",
-            use_container_width=True,
-            type="primary",
+            "🔍 アイデアを生成する", use_container_width=True, type="primary"
         )
 
     if not submitted:
         return
 
-    # バリデーション
     if not url:
         st.error("Amazon商品URLを入力してください。")
         return
@@ -251,46 +312,45 @@ def show_input():
         st.error("AmazonのURLを入力してください。")
         return
     if not extract_asin(url):
-        st.error("URLからASIN（商品ID）を抽出できませんでした。商品ページのURLを確認してください。")
+        st.error("URLからASIN（商品ID）を抽出できませんでした。")
         return
 
     api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error(
-            "Gemini APIキーが未設定です。\n"
-            "サイドバーで入力するか、.env ファイルに GEMINI_API_KEY を設定してください。"
-        )
+        st.error("Gemini APIキーが未設定です。左メニューの「設定」から入力してください。")
         return
 
-    # 実行
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    def update_progress(msg: str, pct: int):
+    def update_progress(msg, pct):
         progress_bar.progress(pct)
         status_text.text(f"⏳ {msg}")
 
     try:
-        product_data = scrape_all(url, max_similar_products=sim_count, progress_callback=update_progress, api_key=api_key, use_gemini_reviews=(review_mode == "gemini"))
+        product_data = scrape_all(
+            url,
+            max_similar_products=sim_count,
+            progress_callback=update_progress,
+            api_key=api_key,
+            use_gemini_reviews=(review_mode == "gemini"),
+        )
         update_progress("AIがアイデアを生成中...", 85)
-        diff_filter = selected_diff if selected_diff > 0 else None
+        diff_filter = selected_diffs if selected_diffs else None
         ideas = analyze_and_generate_ideas(product_data, diff_filter, api_key)
         progress_bar.progress(100)
         status_text.empty()
     except RuntimeError as e:
-        progress_bar.empty()
-        status_text.empty()
+        progress_bar.empty(); status_text.empty()
         st.error(f"スクレイピングエラー: {e}")
         st.session_state["last_error"] = str(e)
         return
     except Exception as e:
-        progress_bar.empty()
-        status_text.empty()
+        progress_bar.empty(); status_text.empty()
         st.error(f"エラーが発生しました: {e}")
         st.session_state["last_error"] = str(e)
         return
 
-    # ステージ遷移
     st.session_state["product_data"] = product_data
     st.session_state["ideas"] = ideas
     st.session_state["url"] = url
@@ -299,103 +359,58 @@ def show_input():
     st.rerun()
 
 
-# ─────────────────────────────────────────────
-# Stage: ideas（10アイデアカード）
-# ─────────────────────────────────────────────
-def show_ideas():
+def _show_ideas():
     product_data = st.session_state["product_data"]
     ideas = st.session_state["ideas"]
 
-    # ── ヘッダー ──────────────────────────────────
     st.title("💡 新商品アイデア 10選")
-
-    col_back, col_title = st.columns([1, 5])
-    with col_back:
-        if st.button("← 条件を変更する"):
-            st.session_state["stage"] = "input"
-            st.rerun()
+    if st.button("← 条件を変更する"):
+        st.session_state["stage"] = "input"
+        st.rerun()
 
     st.subheader(f"📦 分析商品: {product_data['title']}")
 
-    # ── 収集サマリー ─────────────────────────────
     mode = product_data.get("mode", "main_only")
     main_rev_count = len(product_data.get("reviews", []))
     similar_data = product_data.get("similar_data", [])
-    sim_rev_total = sum(len(s["reviews"]) for s in similar_data)
-
     amz_cnt = product_data.get("amazon_review_count", main_rev_count)
     gem_cnt = product_data.get("gemini_review_count", 0)
+
     if gem_cnt:
         review_breakdown = f"Amazon **{amz_cnt}件** + Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
     else:
-        review_breakdown = (
-            f"Amazon **{amz_cnt}件**"
-            f"　※Amazonの仕様で★指定不可・自動表示順を取得"
-        )
+        review_breakdown = f"Amazon **{amz_cnt}件**"
+
     if mode == "main_only":
         st.info(
             f"**収集モード:** ⚡ 対象商品のみ　｜　"
-            f"{review_breakdown}　｜　"
-            f"Amazon総数: {product_data.get('total_reviews', 0)}件"
+            f"{review_breakdown}　｜　Amazon総数: {product_data.get('total_reviews', 0)}件"
         )
     else:
         st.info(
             f"**収集モード:** 🔍 類似品含む　｜　"
-            f"{review_breakdown}　｜　"
-            f"類似品 **{len(similar_data)}商品**"
+            f"{review_breakdown}　｜　類似品 **{len(similar_data)}商品**"
         )
 
-    # ── 参照URL一覧 ─────────────────────────────
     sources = product_data.get("sources", [])
     if sources:
         with st.expander("🔗 参照したURL一覧", expanded=False):
             _icon_map = {"main": "🟢", "similar": "🟡"}
             for s in sources:
                 icon = _icon_map.get(s.get("type", ""), "⚪")
-                label = s.get("type_label", "")
-                title_s = s.get("title", "不明")[:45]
-                count = s.get("review_count", 0)
-                url_s = s.get("url", "")
-                asin_s = s.get("asin", "")
-                total_amz = s.get("total_on_amazon", 0)
-
                 ca, cb, cc = st.columns([3, 2, 2])
                 with ca:
-                    st.markdown(f"{icon} **[{label}]** {title_s}")
-                    st.caption(f"ASIN: `{asin_s}`　｜　[Amazonで確認]({url_s})")
+                    st.markdown(f"{icon} **[{s.get('type_label','')}]** {s.get('title','')[:45]}")
+                    st.caption(f"ASIN: `{s.get('asin','')}`　｜　[Amazonで確認]({s.get('url','')})")
                 with cb:
-                    st.markdown(f"取得レビュー: **{count}件**")
+                    st.markdown(f"取得レビュー: **{s.get('review_count',0)}件**")
                 with cc:
-                    if total_amz > 0:
-                        st.caption(f"Amazon総レビュー数: {total_amz}件")
-                    elif count == 0:
-                        st.caption("ページ情報のみ")
+                    if s.get("total_on_amazon", 0) > 0:
+                        st.caption(f"Amazon総レビュー数: {s['total_on_amazon']}件")
                 st.divider()
 
-    # ── カードグリッド ───────────────────────────
     st.divider()
-
-    # 保存ボタン
-    import json as _json
-    from datetime import datetime as _dt
-    _save_col1, _save_col2 = st.columns([3, 1])
-    with _save_col2:
-        _save_data = {
-            "generated_at": _dt.now().strftime("%Y-%m-%d %H:%M"),
-            "product": product_data.get("title", ""),
-            "asin": product_data.get("asin", ""),
-            "ideas": ideas,
-        }
-        st.download_button(
-            label="💾 アイデアをJSONで保存",
-            data=_json.dumps(_save_data, ensure_ascii=False, indent=2),
-            file_name=f"ideas_{product_data.get('asin','unknown')}_{_dt.now().strftime('%Y%m%d_%H%M')}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
     st.markdown("#### 気になるアイデアの **🔍 深堀する** をクリックしてください")
-    st.caption("16-Word Sales Letter™ フレームワーク準拠　｜　One Belief + Q1〜Q10")
 
     selected_id = None
     for idea in ideas:
@@ -409,55 +424,44 @@ def show_ideas():
         st.rerun()
 
 
-
-# ─────────────────────────────────────────────
-# Stage: deepdive（詳細ページ）
-# ─────────────────────────────────────────────
-def show_deepdive():
+def _show_deepdive():
     product_data = st.session_state["product_data"]
     ideas = st.session_state["ideas"]
     selected_id = st.session_state["selected_idea_id"]
     api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
 
-    # 選択されたアイデアを取得
     idea = next((i for i in ideas if i["id"] == selected_id), None)
     if idea is None:
-        st.error("アイデアが見つかりません。")
         st.session_state["stage"] = "ideas"
         st.rerun()
         return
 
-    # ── ナビゲーション ────────────────────────────
-    col_back, col_list = st.columns([1, 4])
-    with col_back:
-        if st.button("← アイデア一覧に戻る"):
-            st.session_state["stage"] = "ideas"
-            st.rerun()
+    if st.button("← アイデア一覧に戻る"):
+        st.session_state["stage"] = "ideas"
+        st.rerun()
 
-    # ── ヘッダー ──────────────────────────────────
     diff = idea.get("difficulty", 1)
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
     icon = _DIFF_ICON.get(diff, "⚪")
     ob = idea.get("one_belief", {})
 
-    st.markdown(
-        f"## {icon} No.{idea['id']:02d}　{idea['title']}",
-    )
+    st.markdown(f"## {icon} No.{idea['id']:02d}　{idea['title']}")
     st.caption(
         f"分析商品: {product_data['title'][:50]}　｜　"
         f"難易度: {diff_info['label']} {diff_info['name']}　｜　"
-        f"製造コスト: {idea.get('estimated_cost', '—')}　｜　"
-        f"使用LLM: Gemini 2.5 Flash"
+        f"製造コスト: {idea.get('estimated_cost', '—')}"
     )
-    st.info(f"💡 このアイデアのコアメッセージ：「{ob.get('full_statement', '—')}」")
+    st.info(f"💡 コアメッセージ：「{ob.get('full_statement', '—')}」")
 
-    # ── ディープダイブコンテンツの生成（キャッシュ） ─
     cache = st.session_state.get("deep_dive_cache", {})
     if selected_id not in cache:
         st.markdown(
-            "<div style='background:#1e3a5f;color:white;padding:20px 24px;"
-            "border-radius:10px;font-size:16px;text-align:center;margin-bottom:16px'>"
-            "🔍 深堀中です... セールスレター・戦略を生成しています（30〜60秒）"
+            "<div style='border:2px solid #2c7be5;padding:24px;"
+            "border-radius:12px;text-align:center;margin-bottom:16px'>"
+            "<div style='font-size:28px;margin-bottom:8px'>🔍</div>"
+            "<div style='font-size:18px;font-weight:bold;margin-bottom:6px'>"
+            "深堀り中です...</div>"
+            "<div style='font-size:14px'>セールスレター・戦略を生成しています（30〜60秒）</div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -471,68 +475,51 @@ def show_deepdive():
             progress.progress(100, text="完了！")
             st.rerun()
         except Exception as e:
-            st.error(f"詳細コンテンツの生成に失敗しました: {e}")
+            st.error(f"生成に失敗しました: {e}")
             return
     else:
         deep_dive = cache[selected_id]
 
-    # ── タブ ────────────────────────────────────
     tab_keiji, tab_sales, tab_approach, tab_product = st.tabs([
-        "📝 キャッチコピー",
-        "📄 セールス文章",
-        "🚀 アプローチ方法",
-        "📦 商品プロダクト",
+        "📝 キャッチコピー", "📄 セールス文章", "🚀 アプローチ方法", "📦 商品プロダクト",
     ])
 
-    # ── Tab 1: 経歴（キャッチコピー）──────────────
     with tab_keiji:
         st.subheader("🎯 キャッチコピー 3案")
-        st.caption("クラウドファンディングページのメインキャッチとして使えます")
-
-        catchcopy_list = deep_dive.get("catchcopy", [])
-        for i, cc in enumerate(catchcopy_list, 1):
+        for i, cc in enumerate(deep_dive.get("catchcopy", []), 1):
             st.markdown(
-                f"<div style='background:#f0f4f8;padding:14px 18px;"
-                f"border-radius:8px;border-left:4px solid #2c7be5;"
-                f"font-size:16px;font-weight:bold;margin-bottom:10px'>"
-                f"案{i}　{cc}"
-                f"</div>",
+                f"<div style='padding:14px 18px;border-radius:8px;"
+                f"border-left:4px solid #2c7be5;"
+                f"font-size:17px;font-weight:bold;margin-bottom:12px'>"
+                f"案{i}　{cc}</div>",
                 unsafe_allow_html=True,
             )
-
         st.divider()
         st.subheader("🎯 One Belief 詳細")
         for label, key in [("新しい機会", "new_opportunity"), ("顧客の欲求", "desire"), ("新メカニズム", "new_mechanism")]:
             st.markdown(
-                f"<div style='margin-bottom:8px'><span style='font-size:11px;color:#888'>{label}</span><br>"
-                f"<span style='font-size:15px;font-weight:bold'>{ob.get(key, '—')}</span></div>",
+                f"<div style='margin-bottom:10px'>"
+                f"<span style='font-size:11px;opacity:0.7'>{label}</span><br>"
+                f"<span style='font-size:16px;font-weight:bold'>{ob.get(key, '—')}</span></div>",
                 unsafe_allow_html=True,
             )
-
         st.divider()
         st.subheader("🛠 新規性アドバイス")
         for i, adv in enumerate(idea.get("novelty_advice", []), 1):
             st.markdown(f"**{i}.** {adv}")
 
-    # ── Tab 2: セールス文章 ──────────────────────
     with tab_sales:
         st.subheader("📄 クラウドファンディング用セールスレター")
-        st.caption("16-Word Sales Letter™ フレームワークに基づいた全文セールス文章")
-
         sales_letter = deep_dive.get("sales_letter", "")
         if sales_letter:
-            # セクション別に表示
-            sections = sales_letter.split("\n\n")
-            for section in sections:
+            for section in sales_letter.split("\n\n"):
                 section = section.strip()
                 if not section:
                     continue
                 if section.startswith("【") and "】" in section:
-                    # セクションヘッダー
                     header_end = section.index("】") + 1
-                    header = section[:header_end]
+                    st.markdown(f"**{section[:header_end]}**")
                     body = section[header_end:].strip()
-                    st.markdown(f"**{header}**")
                     if body:
                         st.write(body)
                 else:
@@ -546,30 +533,25 @@ def show_deepdive():
         left, right = st.columns(2)
         with left:
             for q, label in [
-                ("q1_novelty",      "Q1｜新規性"),
-                ("q2_benefit",      "Q2｜ベネフィット"),
-                ("q3_proof_abt",    "Q3｜証拠(ABT)"),
-                ("q4_real_problem", "Q4｜真の問題"),
-                ("q5_enemy",        "Q5｜共通の敵"),
+                ("q1_novelty", "Q1｜新規性"), ("q2_benefit", "Q2｜ベネフィット"),
+                ("q3_proof_abt", "Q3｜証拠(ABT)"), ("q4_real_problem", "Q4｜真の問題"),
+                ("q5_enemy", "Q5｜共通の敵"),
             ]:
                 st.markdown(f"**{label}**")
                 st.write(idea.get(q, "—"))
         with right:
             for q, label in [
-                ("q6_urgency",   "Q6｜緊急性"),
-                ("q7_trust",     "Q7｜信頼"),
-                ("q8_mechanism", "Q8｜メカニズム"),
-                ("q9_offer",     "Q9｜オファー"),
+                ("q6_urgency", "Q6｜緊急性"), ("q7_trust", "Q7｜信頼"),
+                ("q8_mechanism", "Q8｜メカニズム"), ("q9_offer", "Q9｜オファー"),
                 ("q10_pushpull", "Q10｜クロージング"),
             ]:
                 st.markdown(f"**{label}**")
                 if q in ("q6_urgency", "q10_pushpull"):
-                    highlight_color = "#fff3cd" if q == "q6_urgency" else "#fdecea"
                     border_color = "#f39c12" if q == "q6_urgency" else "#e74c3c"
                     prefix = "🚀" if q == "q6_urgency" else "💥"
                     st.markdown(
-                        f"<div style='background:{highlight_color};padding:8px 12px;"
-                        f"border-radius:6px;border-left:4px solid {border_color};'>"
+                        f"<div style='padding:8px 12px;border-radius:6px;"
+                        f"border-left:4px solid {border_color};'>"
                         f"{prefix} {idea.get(q, '—')}</div>",
                         unsafe_allow_html=True,
                     )
@@ -579,110 +561,85 @@ def show_deepdive():
         if idea.get("evidence"):
             st.divider()
             st.markdown(
-                f"<div style='background:#f8f9fa;padding:10px 14px;border-radius:6px;"
-                f"border-left:4px solid #6c757d;font-size:13px;color:#555'>"
-                f"📝 <b>根拠レビュー:</b> {idea['evidence']}"
-                f"</div>",
+                f"<div style='padding:10px 14px;border-radius:6px;"
+                f"border-left:4px solid #6c757d;font-size:13px;opacity:0.85'>"
+                f"📝 <b>根拠レビュー:</b> {idea['evidence']}</div>",
                 unsafe_allow_html=True,
             )
 
-    # ── Tab 3: アプローチ方法 ─────────────────────
     with tab_approach:
         st.subheader("🚀 マーケティング・アプローチ方法")
         approach = deep_dive.get("approach", {})
-
         if approach.get("overview"):
             st.info(f"**戦略概要:** {approach['overview']}")
-
-        approach_sections = [
-            ("sns",        "📱 SNS戦略"),
-            ("influencer", "🤝 インフルエンサー活用"),
-            ("pr",         "📰 PR・メディア戦略"),
-            ("cf_launch",  "🎯 クラファン立ち上げ戦略"),
-            ("timeline",   "📅 ローンチタイムライン"),
-        ]
-        for key, label in approach_sections:
-            val = approach.get(key, "")
-            if val:
+        for key, label in [
+            ("sns", "📱 SNS戦略"), ("influencer", "🤝 インフルエンサー活用"),
+            ("pr", "📰 PR・メディア戦略"), ("cf_launch", "🎯 クラファン立ち上げ戦略"),
+            ("timeline", "📅 ローンチタイムライン"),
+        ]:
+            if approach.get(key):
                 with st.expander(label, expanded=True):
-                    st.write(val)
+                    st.write(approach[key])
 
-    # ── Tab 4: 商品プロダクト ─────────────────────
     with tab_product:
         st.subheader("📦 商品プロダクト概要")
         product = deep_dive.get("product", {})
-
         if product.get("summary"):
             st.markdown("**商品概要**")
             st.markdown(
-                f"<div style='background:#f8f9fa;padding:14px 18px;"
-                f"border-radius:8px;border-left:4px solid #28a745;"
-                f"font-size:14px;line-height:1.7;margin-bottom:12px'>"
-                f"{product['summary']}"
-                f"</div>",
+                f"<div style='padding:14px 18px;border-radius:8px;"
+                f"border-left:4px solid #28a745;font-size:14px;line-height:1.7;margin-bottom:12px'>"
+                f"{product['summary']}</div>",
                 unsafe_allow_html=True,
             )
-
         c1, c2 = st.columns(2)
         with c1:
             if product.get("features"):
                 st.markdown("**主な特徴・機能**")
                 for f in product["features"]:
                     st.markdown(f"✅ {f}")
-
             if product.get("target_customer"):
                 st.divider()
                 st.markdown("**ターゲット顧客**")
                 st.write(product["target_customer"])
-
         with c2:
             if product.get("price_strategy"):
                 st.markdown("**価格・CF割引戦略**")
                 st.write(product["price_strategy"])
-
             if product.get("cf_goal"):
                 st.divider()
                 st.markdown("**CF目標金額の目安**")
                 st.markdown(
-                    f"<div style='background:#fff3cd;padding:10px 14px;"
-                    f"border-radius:6px;border-left:4px solid #f39c12;'>"
-                    f"🎯 {product['cf_goal']}"
-                    f"</div>",
+                    f"<div style='padding:10px 14px;border-radius:6px;"
+                    f"border-left:4px solid #f39c12;'>"
+                    f"🎯 {product['cf_goal']}</div>",
                     unsafe_allow_html=True,
                 )
-
         if product.get("production_notes"):
             st.divider()
             st.markdown("**製造・調達上の注意点**")
             st.write(product["production_notes"])
-
-        # 再生成ボタン（商品概要のみ再生成）
         st.divider()
-        if st.button("🔄 商品概要を再生成する", use_container_width=False):
+        if st.button("🔄 商品概要を再生成する"):
             with st.spinner("再生成中..."):
                 try:
-                    new_dd = generate_deep_dive_content(idea, product_data, api_key)
-                    cache[selected_id] = new_dd
+                    cache[selected_id] = generate_deep_dive_content(idea, product_data, api_key)
                     st.session_state["deep_dive_cache"] = cache
                     st.rerun()
                 except Exception as e:
                     st.error(f"再生成に失敗しました: {e}")
 
-    # ── PDFダウンロード ──────────────────────────
     st.divider()
     try:
-        generated_at = datetime.now().strftime("%Y年%m月%d日 %H:%M")
         pdf_bytes = generate_pdf_bytes(
-            product_data=product_data,
-            idea=idea,
-            deep_dive=deep_dive,
-            generated_at=generated_at,
+            product_data=product_data, idea=idea, deep_dive=deep_dive,
+            generated_at=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
             model_name="Gemini 2.5 Flash",
         )
         st.download_button(
             label="📄 PDFレポートをダウンロード（クラファン企画書）",
             data=pdf_bytes,
-            file_name=f"cf_report_{extract_asin(st.session_state.get('url', 'unknown'))}_idea{idea['id']:02d}.pdf",
+            file_name=f"cf_report_{extract_asin(st.session_state.get('url','unknown'))}_idea{idea['id']:02d}.pdf",
             mime="application/pdf",
             use_container_width=True,
             type="primary",
@@ -692,16 +649,175 @@ def show_deepdive():
 
 
 # ─────────────────────────────────────────────
+# ページ: 設定
+# ─────────────────────────────────────────────
+def page_settings():
+    user = st.session_state.get("user", {})
+    st.title("⚙️ APIキー設定")
+    st.markdown("---")
+
+    col_l, col_c, col_r = st.columns([1, 3, 1])
+    with col_c:
+        st.markdown("#### Gemini APIキー")
+        api_key_input = st.text_input(
+            "APIキー",
+            type="password",
+            value=st.session_state.get("api_key", ""),
+            label_visibility="collapsed",
+            placeholder="AIzaSy...",
+        )
+
+        col_get, col_test = st.columns(2)
+        with col_get:
+            st.link_button(
+                "🔗 APIキーを取得する",
+                url="https://aistudio.google.com/apikey",
+                use_container_width=True,
+            )
+        with col_test:
+            if st.button("🔌 接続テスト", use_container_width=True):
+                if not api_key_input:
+                    st.error("APIキーを入力してください。")
+                else:
+                    with st.spinner("接続確認中..."):
+                        try:
+                            from google import genai
+                            c = genai.Client(api_key=api_key_input)
+                            c.models.generate_content(model="gemini-2.5-flash", contents="hi")
+                            st.session_state["api_test_result"] = "ok"
+                        except Exception as e:
+                            st.session_state["api_test_result"] = f"error:{e}"
+                    st.rerun()
+
+        result = st.session_state.get("api_test_result")
+        if result == "ok":
+            st.success("✅ APIキーが有効です")
+        elif result and result.startswith("error:"):
+            st.error(f"❌ 接続エラー: {result[6:]}")
+
+        st.markdown("---")
+        if st.button("💾 保存する", type="primary", use_container_width=True):
+            if not api_key_input:
+                st.error("APIキーを入力してください。")
+            else:
+                st.session_state["api_key"] = api_key_input
+                auth.update_api_key(user["id"], api_key_input)
+                st.session_state["api_test_result"] = None
+                st.success("✅ APIキーを保存しました。")
+
+
+# ─────────────────────────────────────────────
+# ページ: 管理者
+# ─────────────────────────────────────────────
+def page_admin():
+    user = st.session_state.get("user", {})
+    if not user.get("is_admin"):
+        st.error("管理者権限がありません。")
+        return
+
+    st.title("👑 管理者ページ - ユーザー一覧")
+    st.markdown("---")
+
+    users = auth.get_all_users()
+    st.markdown(f"**登録ユーザー数: {len(users)} 名**")
+    st.markdown("")
+
+    if not users:
+        st.info("登録ユーザーがいません。")
+        return
+
+    header_cols = st.columns([3, 2, 2, 2, 1, 1, 1])
+    for col, label in zip(
+        header_cols,
+        ["メールアドレス", "名前", "電話番号", "登録日時", "認証", "管理者", "メルマガ"],
+    ):
+        col.markdown(f"**{label}**")
+    st.divider()
+
+    for u in users:
+        cols = st.columns([3, 2, 2, 2, 1, 1, 1])
+        cols[0].write(u["email"])
+        cols[1].write(u["name"])
+        cols[2].write(u["phone"] or "—")
+        cols[3].write(u["created_at"][:16])
+        cols[4].write("✅" if u["is_verified"] else "❌")
+        cols[5].write("👑" if u["is_admin"] else "—")
+        cols[6].write("✅" if u["newsletter_consent"] else "—")
+
+
+# ─────────────────────────────────────────────
 # ルーティング
 # ─────────────────────────────────────────────
-stage = st.session_state.get("stage", "input")
+cm = _get_cookie_manager()
+user = st.session_state.get("user")
 
-if stage == "input":
-    show_input()
-elif stage == "ideas":
-    show_ideas()
-elif stage == "deepdive":
-    show_deepdive()
-else:
-    st.session_state["stage"] = "input"
-    st.rerun()
+# Cookieからの自動ログイン
+if user is None:
+    token = cm.get("st_session")
+    if token:
+        saved_user = auth.validate_session(token)
+        if saved_user:
+            st.session_state["user"] = saved_user
+            saved_key = auth.get_user_api_key(saved_user["id"])
+            if saved_key:
+                st.session_state["api_key"] = saved_key
+            user = saved_user
+
+if user is None:
+    show_auth()
+    st.stop()
+
+# サイドバーを完全に非表示
+st.markdown("""
+<style>
+[data-testid="stSidebar"] { display: none; }
+[data-testid="stSidebarCollapsedControl"] { display: none; }
+</style>
+""", unsafe_allow_html=True)
+
+# ページ定義
+_home_page     = st.Page(page_home,     title="ホーム",   icon="🏠", default=True)
+_settings_page = st.Page(page_settings, title="設定",     icon="⚙️")
+_pages = [_home_page, _settings_page]
+_admin_page = None
+if user.get("is_admin"):
+    _admin_page = st.Page(page_admin, title="管理者", icon="👑")
+    _pages.append(_admin_page)
+
+# ナビゲーション（サイドバー非表示）
+pg = st.navigation(_pages, position="hidden")
+
+# ─── トップナビゲーションバー ───────────────────
+col_left, col_right = st.columns([7, 3])
+
+with col_left:
+    lc1, lc2, lc3, _ = st.columns([1.5, 1.5, 1.5, 5.5])
+    with lc1:
+        st.page_link(_home_page, label="ホーム", icon="🏠")
+    with lc2:
+        st.page_link(_settings_page, label="設定", icon="⚙️")
+    with lc3:
+        if _admin_page:
+            st.page_link(_admin_page, label="管理者", icon="👑")
+
+with col_right:
+    rc1, rc2 = st.columns([3, 2])
+    with rc1:
+        st.markdown(
+            f"<div style='text-align:right;padding-top:6px;font-size:13px;opacity:0.7'>"
+            f"👤 {user.get('name', '')}</div>",
+            unsafe_allow_html=True,
+        )
+    with rc2:
+        if st.button("ログアウト", use_container_width=True):
+            token = cm.get("st_session")
+            if token:
+                auth.delete_session(token)
+            cm.delete("st_session", key="del_logout")
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+
+st.divider()
+
+pg.run()

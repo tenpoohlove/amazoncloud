@@ -139,12 +139,29 @@ def _build_prompt(product_data: dict, difficulty_filter: int | None) -> str:
         if not similar_text:
             similar_text = "（類似品レビューを取得できませんでした）"
 
+    # difficulty_filter は int | list[int] | None のいずれか
+    if isinstance(difficulty_filter, int):
+        difficulty_filter = [difficulty_filter] if difficulty_filter > 0 else []
+
     if difficulty_filter:
-        d = DIFFICULTY[difficulty_filter]
-        diff_instruction = (
-            f"【難易度指定】{d['label']} {d['name']} のみ → {d['desc']}"
-        )
-        count_note = f"すべて {d['label']} で統一"
+        if len(difficulty_filter) == 1:
+            d = DIFFICULTY[difficulty_filter[0]]
+            diff_instruction = (
+                f"【難易度指定】{d['label']} {d['name']} のみ → {d['desc']}"
+            )
+            count_note = f"すべて {d['label']} で統一（10個）"
+        else:
+            labels = " と ".join(DIFFICULTY[d]["label"] for d in difficulty_filter)
+            descs = "　".join(
+                f"{DIFFICULTY[d]['label']}: {DIFFICULTY[d]['desc']}"
+                for d in difficulty_filter
+            )
+            per = max(1, 10 // len(difficulty_filter))
+            counts = " + ".join(
+                f"{DIFFICULTY[d]['label']}×{per}" for d in difficulty_filter
+            )
+            diff_instruction = f"【難易度指定】{labels} のみ\n  {descs}"
+            count_note = counts + "（合計10個になるよう均等に割り当てること）"
     else:
         diff_instruction = "【難易度】★1〜★5 をバランスよく（各2件ずつ）"
         count_note = "★1×2・★2×2・★3×2・★4×2・★5×2"
@@ -318,7 +335,7 @@ STEP 6 — Constitutional Review（自己審査）
 # ─────────────────────────────────────────────
 def analyze_and_generate_ideas(
     product_data: dict,
-    difficulty_filter: int | None = None,
+    difficulty_filter=None,
     api_key: str | None = None,
 ) -> list[dict]:
     """
@@ -441,9 +458,44 @@ def generate_deep_dive_content(
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """ if makuake_context else ""
 
+    _MAKUAKE_COPY_GUIDE = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【クラウドファンディング 成功コピーの鉄則（必ず守ること）】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ 売れるページの本質構造
+  ・コピー = 価値の要約（冒頭の1文で価値を言い切る）
+  ・本文 = 証拠の連鎖（数値・受賞・実績・比較・動画説明）
+  ・オファー = 行動の後押し（限定価格・先行販売・数量制限）
+
+■ 勝てるコピーの5段構成
+  ① 強いフックで「未来の理想像」または「現状の問題」を提示
+  ② 既存品への不満を言語化し「自分事」にする
+  ③ 差別化した解決策を具体的に提示（数字・比較で視覚化）
+  ④ 数値・信頼実績・開発背景で「本物感」を担保
+  ⑤ 期間限定・数量限定・先行価格で「今すぐ動く理由」を与える
+
+■ 最重要テクニック（必ず文章に反映させること）
+  1. 社会的証明: 「◯◯人が支援」「メディア掲載」等の事実を入れる
+  2. 強いキャッチ: 読んだ瞬間に「これだ！」と感じる一文で価値を言い切る
+  3. 体験価値: 購入後の生活変化を具体的なシーンで描く
+  4. 緊急性: 「先着◯名」「プロジェクト終了まで◯日」等
+  5. 権威性: 認証・受賞・開発者の実績を必ず入れる
+  6. リスク除去: 保証・返品ポリシーを明記して購入障壁をゼロにする
+
+■ キャッチコピーの禁則（やってはいけないこと）
+  ✗ 機能を羅列するだけの文（スペックの列挙）
+  ✗ 「高品質」「便利」などの抽象ワード単独使用
+  ✗ 3行以上の長いキャッチ
+  ✓ 「〇〇しながら△△できる」→ ベネフィット型
+  ✓ 「もう〇〇で悩まない」→ 問題解決型
+  ✓ 「〇〇が変わる、生活が変わる」→ 変化訴求型
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
     prompt = f"""あなたはクラウドファンディング専門のコピーライター兼マーケティング戦略家です。
 すべての出力は必ず日本語で書いてください。
 Makuakeで実際に売れた商品ページの文章トーン・構成を参考に、読んで「欲しい！」と感じさせる文章を書いてください。
+フレームワーク名・ツール名・手法名は文章内に一切記載しないこと。あくまで自然な日本語の文章として仕上げてください。
 
 以下の新商品アイデアについて、クラウドファンディング用の詳細コンテンツを生成してください。
 
@@ -475,7 +527,7 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 【元商品情報】
 商品名: {title_main}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{makuake_section}
+{makuake_section}{_MAKUAKE_COPY_GUIDE}
 以下の4セクションを含むJSONを返してください。マークダウン・コードブロック不要。
 
 {{
