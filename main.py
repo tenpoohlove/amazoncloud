@@ -23,29 +23,27 @@ load_dotenv()
 auth.init_db()
 
 # ─────────────────────────────────────────────
-# Cookie manager（エラー時は graceful degradation）
+# Cookie manager
+# 読み取り: st.context.cookies（リロード即反映・安定）
+# 書き込み/削除: extra_streamlit_components（設定・削除用）
 # ─────────────────────────────────────────────
 try:
     import extra_streamlit_components as stx
 
-    @st.cache_resource
     def _get_cookie_manager():
-        return stx.CookieManager(key="session_cookie")
+        if "cookie_manager" not in st.session_state:
+            st.session_state["cookie_manager"] = stx.CookieManager(key="session_cookie")
+        return st.session_state["cookie_manager"]
 
     _COOKIE_AVAILABLE = True
 except Exception:
     _COOKIE_AVAILABLE = False
 
-    class _DummyCookieManager:
-        def get(self, key):
-            return None
-        def set(self, *a, **kw):
-            pass
-        def delete(self, *a, **kw):
-            pass
-
     def _get_cookie_manager():
-        return _DummyCookieManager()
+        class _Dummy:
+            def set(self, *a, **kw): pass
+            def delete(self, *a, **kw): pass
+        return _Dummy()
 
 
 def _cookie_get(key: str):
@@ -79,6 +77,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# CookieManager を毎レンダリング必ず描画
+# （描画されないと pending の set/delete JavaScript が発火しない）
+if _COOKIE_AVAILABLE:
+    _get_cookie_manager()
+
 # ─────────────────────────────────────────────
 # セッション初期化
 # ─────────────────────────────────────────────
@@ -93,6 +96,7 @@ for _k, _v in [
     ("last_error", ""),
     ("user", None),
     ("api_test_result", None),
+    ("deepdiving_id", None),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -152,21 +156,27 @@ def _idea_card(idea: dict, col):
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-size:13px;margin-bottom:4px'>"
+                f"<div style='font-size:13px;margin-bottom:4px;color:inherit'>"
                 f"🔑 {idea.get('q1_novelty', '—')[:60]}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             if idea.get("evidence"):
                 st.markdown(
-                    f"<div style='font-size:12px;margin-bottom:4px'>"
+                    f"<div style='font-size:12px;margin-bottom:4px;color:inherit'>"
                     f"📝 根拠レビュー: {idea['evidence'][:60]}"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
-            if st.button("🔍 深堀する", key=f"detail_{idea['id']}",
-                         use_container_width=True, type="primary"):
-                return True
+            is_loading = st.session_state.get("deepdiving_id") == idea["id"]
+            if is_loading:
+                st.button("⏳ 深堀中...", key=f"detail_{idea['id']}",
+                          use_container_width=True, type="primary", disabled=True)
+            else:
+                if st.button("🔍 深堀する", key=f"detail_{idea['id']}",
+                             use_container_width=True, type="primary"):
+                    st.session_state["deepdiving_id"] = idea["id"]
+                    st.rerun()
     return False
 
 
@@ -330,6 +340,8 @@ def page_home():
         _show_input()
     elif stage == "ideas":
         _show_ideas()
+    elif stage == "analysis":
+        _show_analysis()
     elif stage == "deepdive":
         _show_deepdive()
     else:
@@ -538,16 +550,135 @@ def _show_ideas():
     st.divider()
     st.markdown("#### 気になるアイデアの **🔍 深堀する** をクリックしてください")
 
-    selected_id = None
     for idea in ideas:
         col = st.columns(1)[0]
-        if _idea_card(idea, col):
-            selected_id = idea["id"]
+        _idea_card(idea, col)
 
-    if selected_id is not None:
-        st.session_state["selected_idea_id"] = selected_id
-        st.session_state["stage"] = "deepdive"
+    deepdiving_id = st.session_state.get("deepdiving_id")
+    if deepdiving_id is not None:
+        st.session_state["selected_idea_id"] = deepdiving_id
+        st.session_state["deepdiving_id"] = None
+        st.session_state["stage"] = "analysis"
         st.rerun()
+
+
+def _show_analysis():
+    """中間ページ: Q1-Q10 分析データを詳細表示（APIコールなし）"""
+    ideas      = st.session_state["ideas"]
+    selected_id = st.session_state["selected_idea_id"]
+
+    idea = next((i for i in ideas if i["id"] == selected_id), None)
+    if idea is None:
+        st.session_state["stage"] = "ideas"
+        st.rerun()
+        return
+
+    diff      = idea.get("difficulty", 1)
+    diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
+    icon      = _DIFF_ICON.get(diff, "⚪")
+    ob        = idea.get("one_belief", {})
+
+    col_back, col_fwd = st.columns([1, 4])
+    with col_back:
+        if st.button("← アイデア一覧に戻る"):
+            st.session_state["stage"] = "ideas"
+            st.rerun()
+
+    st.markdown(f"## {icon} No.{idea['id']:02d}　{idea['title']}")
+    st.caption(
+        f"難易度: {diff_info['label']} {diff_info['name']}　｜　"
+        f"製造コスト: {idea.get('estimated_cost', '—')}"
+    )
+
+    # One Belief カード
+    st.markdown(
+        f"<div style='padding:16px 20px;border-radius:10px;"
+        f"border:2px solid #2c7be5;margin:12px 0 20px 0;"
+        f"font-size:16px;font-weight:bold;line-height:1.7;color:#1a1a1a'>"
+        f"💡 {ob.get('full_statement', '—')}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    ob_cols = st.columns(3)
+    for col, (label, key, color) in zip(ob_cols, [
+        ("新しい機会", "new_opportunity", "#e8f4f8"),
+        ("顧客の欲求",  "desire",          "#fff3cd"),
+        ("新メカニズム","new_mechanism",   "#e8f8e8"),
+    ]):
+        with col:
+            st.markdown(
+                f"<div style='padding:12px 14px;border-radius:8px;background:{color};"
+                f"min-height:80px;color:#1a1a1a'>"
+                f"<div style='font-size:11px;opacity:0.65;margin-bottom:4px'>{label}</div>"
+                f"<div style='font-size:14px;font-weight:bold'>{ob.get(key, '—')}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("---")
+    st.markdown("### 📋 アイデア分析データ")
+    st.caption("クラファンページ生成に使われる分析データです。")
+
+    _Q_LABELS = [
+        ("q1_novelty",     "Q1｜新規性",     "なぜ今、誰も実現できていないのか"),
+        ("q2_benefit",     "Q2｜ベネフィット","顧客が得られる最大の価値"),
+        ("q3_proof_abt",   "Q3｜証拠(ABT)",  "ビフォー→ブリッジ→アフターの構造"),
+        ("q4_real_problem","Q4｜真の問題",    "表面的な不満の奥にある本当の問題"),
+        ("q5_enemy",       "Q5｜共通の敵",   "顧客が怒りを向けるべき対象"),
+        ("q6_urgency",     "Q6｜緊急性",     "今すぐ行動すべき理由"),
+        ("q7_trust",       "Q7｜信頼",       "信用させるための証拠・実績"),
+        ("q8_mechanism",   "Q8｜メカニズム", "なぜこのアイデアが機能するのか"),
+        ("q9_offer",       "Q9｜オファー",   "クラファンの価格・特典・条件"),
+        ("q10_pushpull",   "Q10｜クロージング","最後の一押し・プッシュ＆プル"),
+    ]
+    _Q_COLORS = {
+        "q6_urgency":     ("#fff3cd", "#f39c12"),
+        "q10_pushpull":   ("#ffebee", "#e74c3c"),
+        "q5_enemy":       ("#fce4ec", "#c62828"),
+        "q3_proof_abt":   ("#e8f5e9", "#2e7d32"),
+        "q7_trust":       ("#e3f2fd", "#1565c0"),
+        "q9_offer":       ("#f3e5f5", "#6a1b9a"),
+    }
+
+    left_qs, right_qs = _Q_LABELS[:5], _Q_LABELS[5:]
+    col_l, col_r = st.columns(2)
+    for qs, col in [(left_qs, col_l), (right_qs, col_r)]:
+        with col:
+            for key, label, hint in qs:
+                bg, border = _Q_COLORS.get(key, ("#f8f9fa", "#6c757d"))
+                st.markdown(
+                    f"<div style='padding:12px 14px;border-radius:8px;"
+                    f"border-left:4px solid {border};background:{bg};"
+                    f"margin-bottom:10px;color:#1a1a1a'>"
+                    f"<div style='font-size:11px;opacity:0.65;margin-bottom:3px'>"
+                    f"{label}　<span style='font-weight:normal'>{hint}</span></div>"
+                    f"<div style='font-size:14px;line-height:1.6'>{idea.get(key, '—')}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+    if idea.get("novelty_advice"):
+        st.markdown("---")
+        st.markdown("### 🛠 新規性アドバイス")
+        for i, adv in enumerate(idea["novelty_advice"], 1):
+            st.markdown(f"**{i}.** {adv}")
+
+    if idea.get("evidence"):
+        st.markdown(
+            f"<div style='padding:10px 14px;border-radius:6px;"
+            f"border-left:4px solid #6c757d;font-size:13px;opacity:0.85;"
+            f"margin-top:12px;color:#1a1a1a'>"
+            f"📝 <b>根拠レビュー:</b> {idea['evidence']}</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary"):
+            st.session_state["stage"] = "deepdive"
+            st.rerun()
 
 
 def _show_deepdive():
@@ -562,9 +693,11 @@ def _show_deepdive():
         st.rerun()
         return
 
-    if st.button("← アイデア一覧に戻る"):
-        st.session_state["stage"] = "ideas"
-        st.rerun()
+    col_back2, _ = st.columns([1, 4])
+    with col_back2:
+        if st.button("← 分析ページに戻る"):
+            st.session_state["stage"] = "analysis"
+            st.rerun()
 
     diff      = idea.get("difficulty", 1)
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
@@ -584,16 +717,16 @@ def _show_deepdive():
         st.markdown(
             "<div style='border:2px solid #2c7be5;padding:24px;"
             "border-radius:12px;text-align:center;margin-bottom:16px'>"
-            "<div style='font-size:28px;margin-bottom:8px'>🔍</div>"
+            "<div style='font-size:28px;margin-bottom:8px'>🚀</div>"
             "<div style='font-size:18px;font-weight:bold;margin-bottom:6px'>"
-            "深堀り中です...</div>"
-            "<div style='font-size:14px'>セールスレター・戦略を生成しています（30〜60秒）</div>"
+            "Makuakeパターンでページ生成中...</div>"
+            "<div style='font-size:14px'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
             "</div>",
             unsafe_allow_html=True,
         )
-        progress = st.progress(0, text="アイデアを分析中...")
+        progress = st.progress(0, text="分析データを読み込み中...")
         try:
-            progress.progress(30, text="コアメッセージを構築中...")
+            progress.progress(20, text="Makuakeパターンでページ構成を生成中...")
             deep_dive = generate_deep_dive_content(idea, product_data, api_key)
             progress.progress(90, text="仕上げ中...")
             cache[selected_id] = deep_dive
@@ -606,11 +739,11 @@ def _show_deepdive():
     else:
         deep_dive = cache[selected_id]
 
-    tab_keiji, tab_sales, tab_approach, tab_product = st.tabs([
-        "📝 キャッチコピー", "📄 セールス文章", "🚀 アプローチ方法", "📦 商品プロダクト",
+    tab_copy, tab_pages, tab_returns, tab_check = st.tabs([
+        "🎯 キャッチコピー", "📄 ページ構成（10セクション）", "💰 リターン設計", "✅ チェックリスト",
     ])
 
-    with tab_keiji:
+    with tab_copy:
         st.subheader("🎯 キャッチコピー 3案")
         for i, cc in enumerate(deep_dive.get("catchcopy", []), 1):
             st.markdown(
@@ -621,132 +754,7 @@ def _show_deepdive():
                 unsafe_allow_html=True,
             )
         st.divider()
-        st.subheader("🎯 One Belief 詳細")
-        for label, key in [("新しい機会", "new_opportunity"), ("顧客の欲求", "desire"), ("新メカニズム", "new_mechanism")]:
-            st.markdown(
-                f"<div style='margin-bottom:10px'>"
-                f"<span style='font-size:11px;opacity:0.7'>{label}</span><br>"
-                f"<span style='font-size:16px;font-weight:bold'>{ob.get(key, '—')}</span></div>",
-                unsafe_allow_html=True,
-            )
-        st.divider()
-        st.subheader("🛠 新規性アドバイス")
-        for i, adv in enumerate(idea.get("novelty_advice", []), 1):
-            st.markdown(f"**{i}.** {adv}")
-
-    with tab_sales:
-        st.subheader("📄 クラウドファンディング用セールスレター")
-        sales_letter = deep_dive.get("sales_letter", "")
-        if sales_letter:
-            for section in sales_letter.split("\n\n"):
-                section = section.strip()
-                if not section:
-                    continue
-                if section.startswith("【") and "】" in section:
-                    header_end = section.index("】") + 1
-                    st.markdown(f"**{section[:header_end]}**")
-                    body = section[header_end:].strip()
-                    if body:
-                        st.write(body)
-                else:
-                    st.write(section)
-                st.markdown("")
-        else:
-            st.warning("セールス文章を生成できませんでした。")
-
-        st.divider()
-        st.subheader("📋 Q1〜Q10（設計根拠）")
-        left, right = st.columns(2)
-        with left:
-            for q, label in [
-                ("q1_novelty", "Q1｜新規性"), ("q2_benefit", "Q2｜ベネフィット"),
-                ("q3_proof_abt", "Q3｜証拠(ABT)"), ("q4_real_problem", "Q4｜真の問題"),
-                ("q5_enemy", "Q5｜共通の敵"),
-            ]:
-                st.markdown(f"**{label}**")
-                st.write(idea.get(q, "—"))
-        with right:
-            for q, label in [
-                ("q6_urgency", "Q6｜緊急性"), ("q7_trust", "Q7｜信頼"),
-                ("q8_mechanism", "Q8｜メカニズム"), ("q9_offer", "Q9｜オファー"),
-                ("q10_pushpull", "Q10｜クロージング"),
-            ]:
-                st.markdown(f"**{label}**")
-                if q in ("q6_urgency", "q10_pushpull"):
-                    border_color = "#f39c12" if q == "q6_urgency" else "#e74c3c"
-                    prefix = "🚀" if q == "q6_urgency" else "💥"
-                    st.markdown(
-                        f"<div style='padding:8px 12px;border-radius:6px;"
-                        f"border-left:4px solid {border_color};'>"
-                        f"{prefix} {idea.get(q, '—')}</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.write(idea.get(q, "—"))
-
-        if idea.get("evidence"):
-            st.divider()
-            st.markdown(
-                f"<div style='padding:10px 14px;border-radius:6px;"
-                f"border-left:4px solid #6c757d;font-size:13px;opacity:0.85'>"
-                f"📝 <b>根拠レビュー:</b> {idea['evidence']}</div>",
-                unsafe_allow_html=True,
-            )
-
-    with tab_approach:
-        st.subheader("🚀 マーケティング・アプローチ方法")
-        approach = deep_dive.get("approach", {})
-        if approach.get("overview"):
-            st.info(f"**戦略概要:** {approach['overview']}")
-        for key, label in [
-            ("sns", "📱 SNS戦略"), ("influencer", "🤝 インフルエンサー活用"),
-            ("pr", "📰 PR・メディア戦略"), ("cf_launch", "🎯 クラファン立ち上げ戦略"),
-            ("timeline", "📅 ローンチタイムライン"),
-        ]:
-            if approach.get(key):
-                with st.expander(label, expanded=True):
-                    st.write(approach[key])
-
-    with tab_product:
-        st.subheader("📦 商品プロダクト概要")
-        product = deep_dive.get("product", {})
-        if product.get("summary"):
-            st.markdown("**商品概要**")
-            st.markdown(
-                f"<div style='padding:14px 18px;border-radius:8px;"
-                f"border-left:4px solid #28a745;font-size:14px;line-height:1.7;margin-bottom:12px'>"
-                f"{product['summary']}</div>",
-                unsafe_allow_html=True,
-            )
-        c1, c2 = st.columns(2)
-        with c1:
-            if product.get("features"):
-                st.markdown("**主な特徴・機能**")
-                for f in product["features"]:
-                    st.markdown(f"✅ {f}")
-            if product.get("target_customer"):
-                st.divider()
-                st.markdown("**ターゲット顧客**")
-                st.write(product["target_customer"])
-        with c2:
-            if product.get("price_strategy"):
-                st.markdown("**価格・CF割引戦略**")
-                st.write(product["price_strategy"])
-            if product.get("cf_goal"):
-                st.divider()
-                st.markdown("**CF目標金額の目安**")
-                st.markdown(
-                    f"<div style='padding:10px 14px;border-radius:6px;"
-                    f"border-left:4px solid #f39c12;'>"
-                    f"🎯 {product['cf_goal']}</div>",
-                    unsafe_allow_html=True,
-                )
-        if product.get("production_notes"):
-            st.divider()
-            st.markdown("**製造・調達上の注意点**")
-            st.write(product["production_notes"])
-        st.divider()
-        if st.button("🔄 商品概要を再生成する"):
+        if st.button("🔄 再生成する", key="regen_cf"):
             with st.spinner("再生成中..."):
                 try:
                     cache[selected_id] = generate_deep_dive_content(idea, product_data, api_key)
@@ -754,6 +762,97 @@ def _show_deepdive():
                     st.rerun()
                 except Exception as e:
                     st.error(f"再生成に失敗しました: {e}")
+
+    with tab_pages:
+        st.subheader("📄 Makuakeページ構成（10セクション）")
+        _section_icons = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+        sections = deep_dive.get("page_sections", [])
+        if sections:
+            for sec in sections:
+                idx = sec.get("section", 1) - 1
+                icon_s = _section_icons[idx] if 0 <= idx < len(_section_icons) else "▶"
+                with st.expander(
+                    f"{icon_s} **セクション{sec.get('section','')}：{sec.get('name','')}**　"
+                    f"— {sec.get('purpose','')}",
+                    expanded=(idx == 0),
+                ):
+                    st.markdown(
+                        f"<div style='padding:14px 18px;border-radius:8px;"
+                        f"background:#f8f9fa;font-size:14px;line-height:1.8;"
+                        f"white-space:pre-wrap;margin-bottom:8px;color:#1a1a1a'>"
+                        f"{sec.get('content','')}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if sec.get("media"):
+                        st.caption(f"📸 推奨メディア: {sec['media']}")
+        else:
+            st.warning("ページ構成を生成できませんでした。再生成してください。")
+
+    with tab_returns:
+        st.subheader("💰 リターン設計（3段階）")
+        ret = deep_dive.get("returns", {})
+        _tier_colors = {
+            "early_bird": ("#fff8e1", "#f39c12", "🥇"),
+            "standard":   ("#e8f4f8", "#2c7be5", "🥈"),
+            "premium":    ("#f3e5f5", "#8e44ad", "🥉"),
+        }
+        for key in ["early_bird", "standard", "premium"]:
+            tier = ret.get(key, {})
+            if not tier:
+                continue
+            bg, border, medal = _tier_colors[key]
+            discount = f"　**{tier.get('discount','')}**" if tier.get("discount") else ""
+            limit    = f"　{tier.get('limit','')}" if tier.get("limit") else ""
+            st.markdown(
+                f"<div style='padding:16px 20px;border-radius:10px;"
+                f"border-left:5px solid {border};background:{bg};margin-bottom:14px;color:#1a1a1a'>"
+                f"<div style='font-size:16px;font-weight:bold;margin-bottom:6px'>"
+                f"{medal} {tier.get('label','')}{discount}{limit}</div>"
+                f"<div style='font-size:20px;font-weight:bold;color:{border};"
+                f"margin-bottom:8px'>{tier.get('price','')}</div>"
+                f"<div style='font-size:14px;line-height:1.7'>{tier.get('description','')}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    with tab_check:
+        st.subheader("✅ トップ3チェックリスト（10項目）")
+        checklist = deep_dive.get("checklist", [])
+        if checklist:
+            for item in checklist:
+                status = item.get("status", "")
+                badge_color = "#28a745" if status == "OK" else "#f39c12"
+                badge_text  = "✅ OK" if status == "OK" else "⚠️ 要強化"
+                st.markdown(
+                    f"<div style='padding:12px 14px;border-radius:8px;"
+                    f"border-left:4px solid {badge_color};"
+                    f"background:#f8f9fa;margin-bottom:8px;color:#1a1a1a'>"
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"align-items:center;margin-bottom:4px'>"
+                    f"<span style='font-weight:bold;font-size:14px'>{item.get('item','')}</span>"
+                    f"<span style='font-size:12px;font-weight:bold;color:{badge_color}'>{badge_text}</span>"
+                    f"</div>"
+                    f"<div style='font-size:13px;opacity:0.8'>{item.get('how','')}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.warning("チェックリストを生成できませんでした。")
+
+        improvements = deep_dive.get("improvements", [])
+        if improvements:
+            st.divider()
+            st.subheader("🔧 改善提案（優先度順）")
+            for i, imp in enumerate(improvements, 1):
+                st.markdown(
+                    f"<div style='padding:12px 14px;border-radius:8px;"
+                    f"border-left:4px solid #2c7be5;background:#e8f4f8;"
+                    f"margin-bottom:8px;font-size:14px;line-height:1.6;color:#1a1a1a'>"
+                    f"<b>{i}.</b> {imp}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.divider()
     try:

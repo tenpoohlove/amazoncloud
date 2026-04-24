@@ -435,7 +435,7 @@ def get_difficulty_options() -> dict:
 
 
 # ─────────────────────────────────────────────
-# ディープダイブ（詳細コンテンツ生成）
+# ディープダイブ（Makuakeパターン クラファンページ生成）
 # ─────────────────────────────────────────────
 def generate_deep_dive_content(
     idea: dict,
@@ -443,28 +443,22 @@ def generate_deep_dive_content(
     api_key: str | None = None,
 ) -> dict:
     """
-    選択されたアイデアに対して4タブ分のコンテンツを一括生成する。
+    Makuakeトップ30成功パターンに基づいてクラファンページ構成を生成する。
 
     Returns:
         {
-          "catchcopy": ["コピー案1", "コピー案2", "コピー案3"],
-          "sales_letter": "全文セールスレター（散文・長文）",
-          "approach": {
-            "overview": "全体戦略の概要",
-            "sns": "SNS戦略",
-            "influencer": "インフルエンサー活用戦略",
-            "pr": "PR・メディア戦略",
-            "cf_launch": "クラファン立ち上げ戦略",
-            "timeline": "ローンチまでのタイムライン（例: 1〜12週）"
+          "catchcopy": ["案1", "案2", "案3"],
+          "page_sections": [
+            {"section": int, "name": str, "purpose": str, "content": str, "media": str},
+            ... 10 items
+          ],
+          "returns": {
+            "early_bird": {"label": str, "discount": str, "limit": str, "price": str, "description": str},
+            "standard":   {"label": str, "discount": str, "price": str, "description": str},
+            "premium":    {"label": str, "price": str, "description": str}
           },
-          "product": {
-            "summary": "商品概要（3〜5文）",
-            "features": ["特徴1", "特徴2", "特徴3", "特徴4", "特徴5"],
-            "target_customer": "ターゲット顧客像",
-            "price_strategy": "価格・CF割引戦略",
-            "production_notes": "製造・調達上の注意点",
-            "cf_goal": "CF目標金額の目安と根拠"
-          }
+          "checklist": [{"item": str, "status": "OK"|"要強化", "how": str}, ... 10 items],
+          "improvements": ["提案1", "提案2", "提案3"]
         }
     """
     _api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -491,61 +485,26 @@ def generate_deep_dive_content(
     except Exception:
         makuake_context = ""
 
-    makuake_section = f"""
+    makuake_ref_section = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【Makuake売れ筋商品ページの参考（文章トーン・構成を参考にすること）】
 {makuake_context}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """ if makuake_context else ""
 
-    _MAKUAKE_COPY_GUIDE = """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【クラウドファンディング 成功コピーの鉄則（必ず守ること）】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-■ 売れるページの本質構造
-  ・コピー = 価値の要約（冒頭の1文で価値を言い切る）
-  ・本文 = 証拠の連鎖（数値・受賞・実績・比較・動画説明）
-  ・オファー = 行動の後押し（限定価格・先行販売・数量制限）
-
-■ 勝てるコピーの5段構成
-  ① 強いフックで「未来の理想像」または「現状の問題」を提示
-  ② 既存品への不満を言語化し「自分事」にする
-  ③ 差別化した解決策を具体的に提示（数字・比較で視覚化）
-  ④ 数値・信頼実績・開発背景で「本物感」を担保
-  ⑤ 期間限定・数量限定・先行価格で「今すぐ動く理由」を与える
-
-■ 最重要テクニック（必ず文章に反映させること）
-  1. 社会的証明: 「◯◯人が支援」「メディア掲載」等の事実を入れる
-  2. 強いキャッチ: 読んだ瞬間に「これだ！」と感じる一文で価値を言い切る
-  3. 体験価値: 購入後の生活変化を具体的なシーンで描く
-  4. 緊急性: 「先着◯名」「プロジェクト終了まで◯日」等
-  5. 権威性: 認証・受賞・開発者の実績を必ず入れる
-  6. リスク除去: 保証・返品ポリシーを明記して購入障壁をゼロにする
-
-■ キャッチコピーの禁則（やってはいけないこと）
-  ✗ 機能を羅列するだけの文（スペックの列挙）
-  ✗ 「高品質」「便利」などの抽象ワード単独使用
-  ✗ 3行以上の長いキャッチ
-  ✓ 「〇〇しながら△△できる」→ ベネフィット型
-  ✓ 「もう〇〇で悩まない」→ 問題解決型
-  ✓ 「〇〇が変わる、生活が変わる」→ 変化訴求型
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-
-    prompt = f"""あなたはクラウドファンディング専門のコピーライター兼マーケティング戦略家です。
+    prompt = f"""あなたはMakuakeで歴代トップ30の実績を持つクラウドファンディング専門コピーライターです。
 すべての出力は必ず日本語で書いてください。
-Makuakeで実際に売れた商品ページの文章トーン・構成を参考に、読んで「欲しい！」と感じさせる文章を書いてください。
-フレームワーク名・ツール名・手法名は文章内に一切記載しないこと。あくまで自然な日本語の文章として仕上げてください。
+フレームワーク名・ツール名（「16-Word」「One Belief」等）は文章内に一切記載しないこと。
 
-以下の新商品アイデアについて、クラウドファンディング用の詳細コンテンツを生成してください。
+以下のアイデアデータをもとに、Makuakeトップ30案件の成功パターンに従った
+クラウドファンディングページ構成を生成してください。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【選択されたアイデア】
 No.{idea.get('id', 1)}: {idea.get('title', '')}
 難易度: {diff_info['label']} {diff_info['name']}  製造コスト: {idea.get('estimated_cost', '')}
 
-One Belief（核心コンセプト）:
-  「{ob.get('full_statement', '')}」
+核心コンセプト: 「{ob.get('full_statement', '')}」
   新しい機会: {ob.get('new_opportunity', '')}
   顧客の欲求: {ob.get('desire', '')}
   新メカニズム: {ob.get('new_mechanism', '')}
@@ -567,44 +526,153 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 【元商品情報】
 商品名: {title_main}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{makuake_section}{_MAKUAKE_COPY_GUIDE}
-以下の4セクションを含むJSONを返してください。マークダウン・コードブロック不要。
+{makuake_ref_section}
+【Makuakeトップ30 成功パターン（必ず従うこと）】
+
+■ 売れるページの本質構造
+  ・コピー = 価値の要約（冒頭1文で価値を言い切る）
+  ・本文 = 証拠の連鎖（数値・受賞・実績・比較・動画説明）
+  ・オファー = 行動の後押し（限定価格・先行販売・数量制限）
+
+■ 最頻出の成功パターン（上位7つ）
+  1. 社会的証明（応援購入額・サポーター数・メディア掲載） ← 最重要
+  2. 強いベネフィット（一文で価値が伝わるキャッチ）
+  3. デザイン性の訴求
+  4. 体験価値の提示（利用シーン動画/GIF）
+  5. 価格アンカー + 限定性
+  6. 動画/GIFによる視覚証拠
+  7. 権威性（受賞・認証・著名パートナー）
+
+■ キャッチコピーの鉄則
+  ✗ 機能羅列・「高品質」「便利」などの抽象ワード単独使用
+  ✓ 「〇〇しながら△△できる」→ ベネフィット型
+  ✓ 「もう〇〇で悩まない」→ 問題解決型
+  ✓ 「〇〇が変わる、生活が変わる」→ 変化訴求型
+
+以下のJSONを返してください。マークダウン・コードブロック不要。
 
 {{
   "catchcopy": [
-    "キャッチコピー案1（20〜40文字。読んだ瞬間に『欲しい』と思わせる。ベネフィット訴求型）",
-    "キャッチコピー案2（同文字数。問題解決・痛みを言語化するタイプ。共感型）",
-    "キャッチコピー案3（同文字数。未来の自分を想像させる変化訴求型）"
+    "キャッチコピー案1（20〜40文字。ベネフィット訴求型）",
+    "キャッチコピー案2（問題解決・共感型）",
+    "キャッチコピー案3（変化訴求型）"
   ],
 
-  "sales_letter": "クラウドファンディングページの本文として使える完全なセールスレター。読んだ人が『これ欲しい、今すぐ支援したい』と感じるように書く。論理ではなく感情で動かすこと。以下の構成で読み物として自然な日本語の散文で書く（見出しは【】で囲む）:\\n\\n【思わず手が止まる一文】読者が共感して『そう！まさにこれ！』となる強烈な問いかけか宣言（1〜2文）\\n\\n【あなたの話ですよね？】読者の日常のリアルな不満・もどかしさを言語化して共感を作る（3〜5文）\\n\\n【実は、解決策はもうある】このアイデアがなぜ今まで誰も気づかなかった答えなのか（3〜5文）\\n\\n【手に入れた未来を想像してください】使った後の生活・感情の変化を具体的に描写する（3〜5文）\\n\\n【信じられないかもしれませんが】実際の根拠・ストーリーで「本物感」を作る（4〜6文）\\n\\n【なぜ今まで解決できなかったのか】既存品の限界・業界の問題を暴く（3〜5文）\\n\\n【今だけのチャンス】CFだからこそ実現できる限定特典・今動く理由（2〜3文）\\n\\n【なぜ私たちを信頼できるか】開発背景・想い・実績（2〜4文）\\n\\n【どうやって実現するのか】仕組みをわかりやすく・納得感を作る（3〜5文）\\n\\n【あなたへの特別なオファー】CF支援者限定の価格・特典・リターンの価値を具体的金額で（3〜5文）\\n\\n【最後にひとつだけ】支援しない場合に失うものを示しつつ、温かく背中を押す（3〜4文）",
+  "page_sections": [
+    {{
+      "section": 1,
+      "name": "ファーストビュー",
+      "purpose": "強いキャッチで商品の全体像を伝える",
+      "content": "実際に使えるコピー・文章（150〜400字。具体的に書くこと。読んで『これだ！』と思わせる）",
+      "media": "推奨メディア形式（例: 商品全体の動画30秒、使用シーンGIF）"
+    }},
+    {{
+      "section": 2,
+      "name": "課題提起（共感）",
+      "purpose": "ターゲットの痛みを言語化し自分事にさせる",
+      "content": "読者の日常の不満・もどかしさを具体的に言語化した文章（150〜300字）",
+      "media": "共感を呼ぶライフスタイル画像、ビフォー画像"
+    }},
+    {{
+      "section": 3,
+      "name": "解決策の提示",
+      "purpose": "なぜこのアイデアが唯一の答えなのかを示す",
+      "content": "既存品の限界を暴き、このアイデアの革新性を伝える文章（150〜300字）",
+      "media": "比較表、仕組み図解、アニメーションGIF"
+    }},
+    {{
+      "section": 4,
+      "name": "機能・ベネフィット",
+      "purpose": "具体的な価値をPoint形式で整理する",
+      "content": "Point1〜Point5形式で各機能とそのベネフィットを具体的に（各50〜100字）",
+      "media": "各Pointに対応した製品写真またはアイコン"
+    }},
+    {{
+      "section": 5,
+      "name": "技術的証拠・差別化",
+      "purpose": "数値・比較・認証で本物感を担保する",
+      "content": "数値データ・特許・認証・他社比較などの客観的証拠（150〜300字）",
+      "media": "比較グラフ、認証マーク、スペック比較表"
+    }},
+    {{
+      "section": 6,
+      "name": "利用シーン別ベネフィット",
+      "purpose": "シーン×ベネフィットで購入後の生活を想像させる",
+      "content": "3〜4つの具体的な利用シーンとそれぞれのベネフィット（各100字）",
+      "media": "各シーンの利用シーン写真またはGIF"
+    }},
+    {{
+      "section": 7,
+      "name": "信頼形成",
+      "purpose": "受賞・認証・開発背景で信頼性を構築する",
+      "content": "開発背景・開発者の想い・実績・受賞歴を語る文章（150〜300字）",
+      "media": "開発者写真、受賞トロフィー、メディア掲載ロゴ"
+    }},
+    {{
+      "section": 8,
+      "name": "社会的証明",
+      "purpose": "サポーター・メディア・口コミで安心感を生む",
+      "content": "支援者コメント・メディア掲載・テスター声を想定した文章（150〜300字）",
+      "media": "応援コメント画像、メディアロゴ、SNS投稿スクリーンショット"
+    }},
+    {{
+      "section": 9,
+      "name": "オファー設計",
+      "purpose": "今すぐ支援する理由を価格と限定性で作る",
+      "content": "アーリーバード特典・先着数量制限・CF限定価格の訴求文（150〜250字）",
+      "media": "価格比較バナー、残り数量カウントダウン"
+    }},
+    {{
+      "section": 10,
+      "name": "FAQ・保証・CTA",
+      "purpose": "不安を除去し購入導線を完成させる",
+      "content": "よくある質問3〜5件と回答、保証内容、最後の応援購入CTAボタン文（150〜250字）",
+      "media": "FAQ アコーディオン、CTAボタン（目立つ配色）"
+    }}
+  ],
 
-  "approach": {{
-    "overview": "マーケティング全体戦略の概要（100文字以内）",
-    "sns": "SNS戦略（Instagram/X/TikTok等の活用法、投稿内容・頻度・ハッシュタグ戦略）（200文字以内）",
-    "influencer": "インフルエンサー活用戦略（ターゲットとなるインフルエンサー像・協力依頼内容・プレゼント戦略）（200文字以内）",
-    "pr": "PR・メディア戦略（プレスリリース先・メディアの種類・ニュースバリューの作り方）（200文字以内）",
-    "cf_launch": "クラファン立ち上げ戦略（事前予約・ウォームアップ施策・CF公開タイミング・ゴール設定）（200文字以内）",
-    "timeline": "ローンチまでの12週間タイムライン（例: 1〜2週目: XX、3〜4週目: YY ... 11〜12週目: CF開始）"
+  "returns": {{
+    "early_bird": {{
+      "label": "アーリーバード",
+      "discount": "35%OFF",
+      "limit": "先着XX名様限定",
+      "price": "XX,XXX円（通常XX,XXX円）",
+      "description": "このリターンの内容・付帯特典・配送時期（100字以内）"
+    }},
+    "standard": {{
+      "label": "通常先行",
+      "discount": "20%OFF",
+      "price": "XX,XXX円（通常XX,XXX円）",
+      "description": "内容・特典（100字以内）"
+    }},
+    "premium": {{
+      "label": "プレミアム",
+      "price": "XX,XXX円",
+      "description": "上位リターンの内容・付加価値・限定特典（100字以内）"
+    }}
   }},
 
-  "product": {{
-    "summary": "商品概要（ターゲット・用途・核心価値を含む3〜5文の説明文）",
-    "features": [
-      "特徴・機能1（具体的に）",
-      "特徴・機能2",
-      "特徴・機能3",
-      "特徴・機能4",
-      "特徴・機能5"
-    ],
-    "target_customer": "ターゲット顧客像（年齢・性別・ライフスタイル・購入動機を含む具体的な人物像）",
-    "price_strategy": "価格戦略（想定小売価格・CF早期割引率・リターン段階設計の提案）",
-    "production_notes": "製造・調達・品質管理上の主な注意点（2〜3点）",
-    "cf_goal": "CF目標金額の目安と根拠（製造コスト・ロット数・利益率から逆算）"
-  }}
+  "checklist": [
+    {{"item": "ファーストビューで一文の強い価値提案", "status": "OK", "how": "どう満たしているか（50字以内）"}},
+    {{"item": "ターゲットの痛み・課題の明確化", "status": "OK または 要強化", "how": "..."}},
+    {{"item": "差別化を動画/GIF/比較表で視覚化", "status": "...", "how": "..."}},
+    {{"item": "スペック・認証・受賞・実績など客観的証拠", "status": "...", "how": "..."}},
+    {{"item": "利用シーン別ベネフィットの整理", "status": "...", "how": "..."}},
+    {{"item": "価格アンカー + 限定リターンの設計", "status": "...", "how": "..."}},
+    {{"item": "FAQ・保証・サポートの明記", "status": "...", "how": "..."}},
+    {{"item": "開発ストーリー + 実行者の信頼情報", "status": "...", "how": "..."}},
+    {{"item": "社会的証明（応援コメント・達成実績・メディア）", "status": "...", "how": "..."}},
+    {{"item": "一貫したCTA（応援購入）導線", "status": "...", "how": "..."}}
+  ],
+
+  "improvements": [
+    "改善提案1（具体的に。トップ3に入るために最優先すべきこと）",
+    "改善提案2",
+    "改善提案3"
+  ]
 }}
 
-すべて日本語で、実用的で具体的な内容を書いてください。sales_letterは特に長く詳細に（800文字以上）。"""
+すべて日本語で、実際のMakuakeページで使える具体的な文章・数値を書いてください。"""
 
     message = client.models.generate_content(
         model=GEMINI_MODEL,
@@ -775,60 +843,75 @@ def generate_pdf_bytes(
         story.append(Paragraph(f"案{i}：{cc}", s_box))
         story.append(Spacer(1, 3))
 
-    # 3. セールス文章
-    story += section("■ セールス文章")
-    for para in deep_dive.get("sales_letter", "").split("\n\n"):
-        para = para.strip()
-        if not para:
-            continue
-        if para.startswith("【") or para.startswith("■"):
-            story.append(Paragraph(para, s_h2))
-        else:
-            story.append(Paragraph(para.replace("\n", "<br/>"), s_body))
+    # 3. ページ構成（10セクション）
+    sections_data = deep_dive.get("page_sections", [])
+    if sections_data:
+        story += section("■ Makuakeページ構成（10セクション）")
+        for sec in sections_data:
+            sec_title = f"セクション{sec.get('section','')}：{sec.get('name','')}　— {sec.get('purpose','')}"
+            story.append(Paragraph(sec_title, s_h2))
+            content = sec.get("content", "")
+            if content:
+                story.append(Paragraph(content.replace("\n", "<br/>"), s_body))
+            if sec.get("media"):
+                story.append(Paragraph(f"推奨メディア: {sec['media']}", _s("cap", fontSize=9, leading=13, textColor=colors.HexColor("#888888"))))
+            story.append(Spacer(1, 4))
 
-    # 4. アプローチ方法
-    story += section("■ アプローチ方法")
-    approach = deep_dive.get("approach", {})
-    approach_labels = [
-        ("overview",    "全体戦略概要"),
-        ("sns",         "SNS戦略"),
-        ("influencer",  "インフルエンサー戦略"),
-        ("pr",          "PR・メディア戦略"),
-        ("cf_launch",   "CF立ち上げ戦略"),
-        ("timeline",    "タイムライン"),
-    ]
-    for key, label in approach_labels:
-        val = approach.get(key, "")
-        if val:
-            story.append(Paragraph(label, s_h2))
-            val = "\n".join(val) if isinstance(val, list) else str(val)
-            story.append(Paragraph(val.replace("\n", "<br/>"), s_body))
+    # 4. リターン設計
+    ret = deep_dive.get("returns", {})
+    if ret:
+        story += section("■ リターン設計（3段階）")
+        ret_labels = [
+            ("early_bird", "アーリーバード（35%OFF）"),
+            ("standard",   "通常先行（20%OFF）"),
+            ("premium",    "プレミアム"),
+        ]
+        for key, default_label in ret_labels:
+            tier = ret.get(key, {})
+            if not tier:
+                continue
+            discount = f"　{tier.get('discount','')}" if tier.get("discount") else ""
+            limit    = f"　{tier.get('limit','')}" if tier.get("limit") else ""
+            story.append(Paragraph(f"{tier.get('label', default_label)}{discount}{limit}", s_h2))
+            if tier.get("price"):
+                story.append(Paragraph(tier["price"], _s("price", font=fnb, fontSize=12, leading=18, textColor=colors.HexColor("#2c3e50"))))
+            if tier.get("description"):
+                story.append(Paragraph(tier["description"].replace("\n", "<br/>"), s_body))
+            story.append(Spacer(1, 4))
 
-    # 5. 商品プロダクト
-    story += section("■ 商品プロダクト")
-    product = deep_dive.get("product", {})
-    if product.get("summary"):
-        story.append(Paragraph("商品概要", s_h2))
-        story.append(Paragraph(product["summary"].replace("\n", "<br/>"), s_body))
-    if product.get("features"):
-        story.append(Paragraph("主な特徴・機能", s_h2))
-        for f in product["features"]:
-            story.append(Paragraph(f"・{f}", s_bullet))
-    prod_fields = [
-        ("target_customer", "ターゲット顧客"),
-        ("price_strategy",  "価格戦略"),
-        ("production_notes","製造上の注意点"),
-        ("cf_goal",         "CF目標金額"),
-    ]
-    for key, label in prod_fields:
-        val = product.get(key, "")
-        if val:
-            story.append(Paragraph(label, s_h2))
-            val = "\n".join(val) if isinstance(val, list) else str(val)
-            story.append(Paragraph(val.replace("\n", "<br/>"), s_body))
+    # 5. チェックリスト + 改善提案
+    checklist = deep_dive.get("checklist", [])
+    if checklist:
+        story += section("■ トップ3チェックリスト（10項目）")
+        cl_rows = []
+        for item in checklist:
+            status = item.get("status", "")
+            status_text = "✅ OK" if status == "OK" else "⚠️ 要強化"
+            cl_rows.append([
+                Paragraph(item.get("item", ""), s_cell),
+                Paragraph(status_text, _s("st", font=fnb, fontSize=10, leading=16)),
+                Paragraph(item.get("how", ""), s_cell),
+            ])
+        cl_table = Table(cl_rows, colWidths=[60 * mm, 22 * mm, W - 82 * mm])
+        cl_table.setStyle(TableStyle([
+            ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#ffffff"), colors.HexColor("#f9f9f9")]),
+        ]))
+        story.append(cl_table)
+
+    improvements = deep_dive.get("improvements", [])
+    if improvements:
+        story.append(Paragraph("改善提案（優先度順）", s_h2))
+        for i, imp in enumerate(improvements, 1):
+            story.append(Paragraph(f"{i}. {imp}", s_bullet))
 
     # 6. Q1〜Q10（付録）
-    story += section("■ 16-Word Sales Letter™ Q1〜Q10（付録）")
+    story += section("■ アイデア分析データ Q1〜Q10（付録）")
     q_rows = [
         ["Q1 新規性",       idea.get("q1_novelty", "")],
         ["Q2 ベネフィット",  idea.get("q2_benefit", "")],
