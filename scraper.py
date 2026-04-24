@@ -304,19 +304,89 @@ def _get_total_review_count(soup: BeautifulSoup) -> int:
 # ─────────────────────────────────────────────
 # レビュー収集
 # ─────────────────────────────────────────────
+def _parse_star_from_el(el) -> int:
+    """レビュー要素から星数を取得する。取得できなければ 0 を返す。"""
+    # data-hook="review-star-rating" などから取得
+    for sel in [
+        {"data-hook": "review-star-rating"},
+        {"data-hook": "cmps-review-star-rating"},
+        {"class": "a-icon-alt"},
+    ]:
+        star_el = el.find_previous("span", sel) or el.find_next("span", sel)
+        if star_el:
+            m = re.search(r"(\d)[.,]\d", star_el.get_text())
+            if m:
+                return int(m.group(1))
+    return 0
+
+
+def _collect_from_product_reviews_page(
+    asin: str,
+    domain: str,
+    session: requests.Session,
+    max_pages: int = 3,
+) -> list[dict]:
+    """
+    /product-reviews/ ページから複数ページにわたってレビューを収集する。
+    ログインリダイレクトが来た場合は空リストを返す。
+    """
+    results = []
+    seen_texts: set[str] = set()
+
+    for page in range(1, max_pages + 1):
+        url = (
+            f"{domain}/product-reviews/{asin}"
+            f"?ie=UTF8&reviewerType=all_reviews"
+            f"&sortBy=recent&pageNumber={page}"
+        )
+        time.sleep(random.uniform(1.5, 2.5))
+        try:
+            resp = session.get(url, headers=_headers(), timeout=30)
+            resp.raise_for_status()
+            if _is_blocked(resp.text):
+                break
+            if "ap/signin" in resp.url.lower() or "ap/signin" in resp.text.lower()[:500]:
+                break
+            soup = BeautifulSoup(resp.text, "lxml")
+            page_results = []
+            for el in soup.find_all("span", {"data-hook": "review-body"}):
+                text = el.get_text(" ", strip=True)
+                key = text[:20]
+                if len(text) > 10 and key not in seen_texts:
+                    seen_texts.add(key)
+                    star = _parse_star_from_el(el)
+                    page_results.append({"star": star, "text": text})
+            if not page_results:
+                break
+            results.extend(page_results)
+            print(f"[scraper]   /product-reviews/ p{page}: {len(page_results)}件")
+        except Exception as e:
+            print(f"[scraper] product-reviews p{page}: {e}")
+            break
+
+    return results
+
+
 def collect_reviews(
     asin: str,
     domain: str,
     session: requests.Session,
 ) -> list[dict]:
     """
-    /dp/ ページからレビューを取得する。
-    Amazon.co.jp は filterByStar/pageNumber を無視して常に同じ8件を返す。
-    → フィルターなしで商品ページを1回だけ取得する。
+    レビューを収集する。
+    1. /product-reviews/ ページ（最大3ページ）を試みる
+    2. 失敗またはログイン必須なら /dp/ ページにフォールバック
     """
+    # まず /product-reviews/ を試みる（最大3ページ = 最大30件程度）
+    results = _collect_from_product_reviews_page(asin, domain, session, max_pages=3)
+
+    if results:
+        print(f"[scraper]   レビュー合計: {len(results)}件（/product-reviews/）")
+        return results
+
+    # フォールバック: /dp/ ページ（8件固定）
     url = f"{domain}/dp/{asin}"
     time.sleep(random.uniform(1.5, 2.5))
-    results = []
     try:
         resp = session.get(url, headers=_headers(), timeout=30)
         resp.raise_for_status()
@@ -328,8 +398,9 @@ def collect_reviews(
         for el in soup.find_all("span", {"data-hook": "review-body"}):
             text = el.get_text(" ", strip=True)
             if len(text) > 10:
-                results.append({"star": 0, "text": text})
-        print(f"[scraper]   レビュー: {len(results)}件取得")
+                star = _parse_star_from_el(el)
+                results.append({"star": star, "text": text})
+        print(f"[scraper]   レビュー: {len(results)}件取得（/dp/ fallback）")
     except Exception as e:
         print(f"[scraper] collect_reviews: {e}")
     return results

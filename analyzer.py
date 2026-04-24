@@ -381,6 +381,46 @@ def analyze_and_generate_ideas(
     # 難易度順（★1→★5）でソートしてIDを振り直し、10件に統一
     ideas.sort(key=lambda x: x.get("difficulty", 99))
     ideas = ideas[:10]
+
+    # 難易度分布チェック: フィルター未指定時に欠けている難易度を補完リクエスト
+    if not difficulty_filter:
+        present = {idea.get("difficulty") for idea in ideas}
+        missing = [d for d in range(1, 6) if d not in present]
+        if missing:
+            fill_prompt = _build_prompt(product_data, missing)
+            fill_msg = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=fill_prompt,
+            )
+            try:
+                fill_raw = fill_msg.text.strip()
+                fill_ideas = json.loads(fill_raw)
+                if not isinstance(fill_ideas, list):
+                    raise ValueError
+            except Exception:
+                clean2 = re.sub(r"```(?:json)?", "", fill_msg.text.strip()).strip()
+                m2 = re.search(r"\[.*\]", clean2, re.DOTALL)
+                fill_ideas = json.loads(m2.group()) if m2 else []
+
+            # 不足難易度の分だけ置き換え（元の10件から重複難易度の末尾を削除して追加）
+            for fi in fill_ideas:
+                fd = fi.get("difficulty")
+                if fd in missing:
+                    # 同じ難易度が今の ideas にあれば最後の1件を削除
+                    for j in range(len(ideas) - 1, -1, -1):
+                        if ideas[j].get("difficulty") == fd:
+                            ideas.pop(j)
+                            break
+                    ideas.append(fi)
+                    missing = [d for d in missing if d != fd]
+                    if not missing:
+                        break
+
+            ideas.sort(key=lambda x: x.get("difficulty", 99))
+            ideas = ideas[:10]
+            if missing:
+                print(f"[analyzer] 難易度補完後も不足: {missing}")
+
     for i, idea in enumerate(ideas, 1):
         idea["id"] = i
 

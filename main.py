@@ -10,7 +10,6 @@ from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
-import extra_streamlit_components as stx
 import auth
 from scraper import scrape_all, extract_asin
 from analyzer import (
@@ -23,9 +22,52 @@ from analyzer import (
 load_dotenv()
 auth.init_db()
 
-@st.cache_resource
-def _get_cookie_manager():
-    return stx.CookieManager(key="session_cookie")
+# ─────────────────────────────────────────────
+# Cookie manager（エラー時は graceful degradation）
+# ─────────────────────────────────────────────
+try:
+    import extra_streamlit_components as stx
+
+    @st.cache_resource
+    def _get_cookie_manager():
+        return stx.CookieManager(key="session_cookie")
+
+    _COOKIE_AVAILABLE = True
+except Exception:
+    _COOKIE_AVAILABLE = False
+
+    class _DummyCookieManager:
+        def get(self, key):
+            return None
+        def set(self, *a, **kw):
+            pass
+        def delete(self, *a, **kw):
+            pass
+
+    def _get_cookie_manager():
+        return _DummyCookieManager()
+
+
+def _cookie_get(key: str):
+    try:
+        return _get_cookie_manager().get(key)
+    except Exception:
+        return None
+
+
+def _cookie_set(key: str, value: str, cookie_key: str):
+    try:
+        _get_cookie_manager().set(key, value, key=cookie_key)
+    except Exception:
+        pass
+
+
+def _cookie_delete(key: str, cookie_key: str):
+    try:
+        _get_cookie_manager().delete(key, key=cookie_key)
+    except Exception:
+        pass
+
 
 # ─────────────────────────────────────────────
 # ページ設定
@@ -56,9 +98,11 @@ for _k, _v in [
         st.session_state[_k] = _v
 
 # ─────────────────────────────────────────────
-# メール認証トークン処理
+# クエリパラメータ処理（メール認証・パスワードリセット）
 # ─────────────────────────────────────────────
 verify_token = st.query_params.get("verify_token", "")
+reset_token  = st.query_params.get("reset_token", "")
+
 if verify_token:
     if auth.verify_email_token(verify_token):
         st.query_params.clear()
@@ -127,6 +171,40 @@ def _idea_card(idea: dict, col):
 
 
 # ─────────────────────────────────────────────
+# パスワードリセット画面（トークンがURLにある場合）
+# ─────────────────────────────────────────────
+def show_reset_password_form(token: str):
+    st.title("🔑 パスワードリセット")
+    user = auth.validate_reset_token(token)
+    if not user:
+        st.error("リセットリンクが無効または期限切れです（有効期限: 1時間）。再度お試しください。")
+        if st.button("ログイン画面に戻る"):
+            st.query_params.clear()
+            st.rerun()
+        return
+
+    st.info(f"**{user['email']}** のパスワードを変更します。")
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        with st.form("reset_form"):
+            new_pass  = st.text_input("新しいパスワード（8文字以上）", type="password")
+            new_pass2 = st.text_input("新しいパスワード（確認）", type="password")
+            submitted = st.form_submit_button("パスワードを変更する", use_container_width=True, type="primary")
+        if submitted:
+            if len(new_pass) < 8:
+                st.error("パスワードは8文字以上にしてください。")
+            elif new_pass != new_pass2:
+                st.error("パスワードが一致しません。")
+            else:
+                if auth.apply_reset_password(token, new_pass):
+                    st.success("✅ パスワードを変更しました。新しいパスワードでログインしてください。")
+                    st.query_params.clear()
+                    st.rerun()
+                else:
+                    st.error("変更に失敗しました。リンクが期限切れの可能性があります。")
+
+
+# ─────────────────────────────────────────────
 # 認証画面（未ログイン時）
 # ─────────────────────────────────────────────
 def show_auth():
@@ -139,7 +217,7 @@ def show_auth():
         with tab_login:
             st.markdown("#### ログイン")
             with st.form("login_form"):
-                email = st.text_input("メールアドレス", placeholder="example@email.com")
+                email    = st.text_input("メールアドレス", placeholder="example@email.com")
                 password = st.text_input("パスワード", type="password")
                 submitted = st.form_submit_button(
                     "ログイン", use_container_width=True, type="primary"
@@ -156,22 +234,59 @@ def show_auth():
                         saved_key = auth.get_user_api_key(user["id"])
                         if saved_key:
                             st.session_state["api_key"] = saved_key
-                        # Cookieにセッション保存（30日間）
                         token = auth.create_session(user["id"], days=30)
-                        cm = _get_cookie_manager()
-                        cm.set("st_session", token, key="set_login")
+                        _cookie_set("st_session", token, "set_login")
                         st.rerun()
+
+            st.markdown("---")
+            st.markdown("##### パスワードをお忘れですか？")
+            with st.form("forgot_form"):
+                forgot_email = st.text_input("登録済みメールアドレス", placeholder="example@email.com",
+                                             label_visibility="collapsed")
+                forgot_submitted = st.form_submit_button(
+                    "リセットメールを送る", use_container_width=True
+                )
+            if forgot_submitted:
+                if not forgot_email:
+                    st.error("メールアドレスを入力してください。")
+                else:
+                    ok, token_or_err = auth.create_reset_token(forgot_email)
+                    if not ok:
+                        st.error(token_or_err)
+                    else:
+                        base_url = os.getenv("BASE_URL", "http://localhost:8501")
+                        conn = auth._get_conn()
+                        row = conn.execute(
+                            "SELECT name FROM users WHERE email=?",
+                            (forgot_email.lower().strip(),)
+                        ).fetchone()
+                        conn.close()
+                        name = row["name"] if row else ""
+                        sent, _ = auth.send_password_reset_email(
+                            forgot_email, name, token_or_err, base_url
+                        )
+                        if sent:
+                            st.success(f"✅ パスワードリセットメールを {forgot_email} に送りました。")
+                        else:
+                            reset_url = f"{base_url}?reset_token={token_or_err}"
+                            st.success("✅ リセットリンクを発行しました。")
+                            st.info(
+                                f"以下のリンクからパスワードを変更してください（1時間有効）:\n\n"
+                                f"[🔑 パスワードをリセットする]({reset_url})"
+                            )
 
         with tab_register:
             st.markdown("#### 新規アカウント登録")
             with st.form("register_form"):
-                r_name = st.text_input("お名前", placeholder="山田 太郎")
-                r_email = st.text_input("メールアドレス", placeholder="example@email.com")
-                r_phone = st.text_input("電話番号", placeholder="090-0000-0000")
-                r_pass = st.text_input("パスワード（8文字以上）", type="password")
-                r_pass2 = st.text_input("パスワード（確認）", type="password")
+                r_name       = st.text_input("お名前", placeholder="山田 太郎")
+                r_email      = st.text_input("メールアドレス", placeholder="example@email.com")
+                r_phone      = st.text_input("電話番号", placeholder="090-0000-0000")
+                r_pass       = st.text_input("パスワード（8文字以上）", type="password")
+                r_pass2      = st.text_input("パスワード（確認）", type="password")
                 r_newsletter = st.checkbox("オニオンリンクからのお知らせメールを受け取る")
-                r_terms = st.checkbox("利用規約に同意する（必須）")
+                r_terms      = st.checkbox(
+                    "**[利用規約](/terms)** に同意する（必須）"
+                )
                 submitted_r = st.form_submit_button(
                     "登録する", use_container_width=True, type="primary"
                 )
@@ -196,9 +311,7 @@ def show_auth():
                             r_email, r_name, token_or_err, base_url
                         )
                         if sent:
-                            st.success(
-                                f"✅ 登録完了！{r_email} に確認メールを送りました。"
-                            )
+                            st.success(f"✅ 登録完了！{r_email} に確認メールを送りました。")
                         else:
                             verify_url = f"{base_url}?verify_token={token_or_err}"
                             st.success("✅ 登録完了！")
@@ -321,7 +434,7 @@ def _show_input():
         return
 
     progress_bar = st.progress(0)
-    status_text = st.empty()
+    status_text  = st.empty()
 
     def update_progress(msg, pct):
         progress_bar.progress(pct)
@@ -352,16 +465,29 @@ def _show_input():
         return
 
     st.session_state["product_data"] = product_data
-    st.session_state["ideas"] = ideas
-    st.session_state["url"] = url
-    st.session_state["stage"] = "ideas"
+    st.session_state["ideas"]        = ideas
+    st.session_state["url"]          = url
+    st.session_state["stage"]        = "ideas"
     st.session_state["deep_dive_cache"] = {}
+
+    # 履歴に保存
+    user = st.session_state.get("user")
+    if user:
+        try:
+            auth.save_idea_history(
+                user["id"], url,
+                product_data.get("title", ""),
+                ideas,
+            )
+        except Exception:
+            pass
+
     st.rerun()
 
 
 def _show_ideas():
     product_data = st.session_state["product_data"]
-    ideas = st.session_state["ideas"]
+    ideas        = st.session_state["ideas"]
 
     st.title("💡 新商品アイデア 10選")
     if st.button("← 条件を変更する"):
@@ -370,11 +496,11 @@ def _show_ideas():
 
     st.subheader(f"📦 分析商品: {product_data['title']}")
 
-    mode = product_data.get("mode", "main_only")
+    mode         = product_data.get("mode", "main_only")
     main_rev_count = len(product_data.get("reviews", []))
     similar_data = product_data.get("similar_data", [])
-    amz_cnt = product_data.get("amazon_review_count", main_rev_count)
-    gem_cnt = product_data.get("gemini_review_count", 0)
+    amz_cnt      = product_data.get("amazon_review_count", main_rev_count)
+    gem_cnt      = product_data.get("gemini_review_count", 0)
 
     if gem_cnt:
         review_breakdown = f"Amazon **{amz_cnt}件** + Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
@@ -426,9 +552,9 @@ def _show_ideas():
 
 def _show_deepdive():
     product_data = st.session_state["product_data"]
-    ideas = st.session_state["ideas"]
-    selected_id = st.session_state["selected_idea_id"]
-    api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
+    ideas        = st.session_state["ideas"]
+    selected_id  = st.session_state["selected_idea_id"]
+    api_key      = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
 
     idea = next((i for i in ideas if i["id"] == selected_id), None)
     if idea is None:
@@ -440,10 +566,10 @@ def _show_deepdive():
         st.session_state["stage"] = "ideas"
         st.rerun()
 
-    diff = idea.get("difficulty", 1)
+    diff      = idea.get("difficulty", 1)
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
-    icon = _DIFF_ICON.get(diff, "⚪")
-    ob = idea.get("one_belief", {})
+    icon      = _DIFF_ICON.get(diff, "⚪")
+    ob        = idea.get("one_belief", {})
 
     st.markdown(f"## {icon} No.{idea['id']:02d}　{idea['title']}")
     st.caption(
@@ -707,6 +833,99 @@ def page_settings():
 
 
 # ─────────────────────────────────────────────
+# ページ: 履歴
+# ─────────────────────────────────────────────
+def page_history():
+    user = st.session_state.get("user", {})
+    st.title("📚 生成履歴")
+    st.markdown("---")
+
+    history = auth.get_idea_history(user["id"])
+    if not history:
+        st.info("まだ生成履歴がありません。ホームからアイデアを生成すると自動保存されます。")
+        return
+
+    st.markdown(f"**{len(history)} 件の履歴があります。**")
+    st.caption("アイデアカードをクリックすると詳細が展開されます。")
+    st.markdown("")
+
+    for item in history:
+        with st.expander(
+            f"📦 {item['product_title'][:50]}　｜　{item['created_at'][:16]}　｜　{len(item['ideas'])}件",
+            expanded=False,
+        ):
+            st.caption(f"URL: {item['product_url']}")
+            st.markdown("")
+            ideas = item["ideas"]
+            for idea in ideas:
+                diff = idea.get("difficulty", 1)
+                icon = _DIFF_ICON.get(diff, "⚪")
+                diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
+                bg = _DIFF_COLOR.get(diff, "#ffffff")
+                ob = idea.get("one_belief", {})
+                st.markdown(
+                    f"<div style='padding:10px 14px;border-radius:8px;"
+                    f"border-left:4px solid #2c7be5;margin-bottom:8px;"
+                    f"background:{bg}'>"
+                    f"<b>{icon} No.{idea.get('id',0):02d}　{idea.get('title','')}</b>　"
+                    f"<span style='font-size:12px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
+                    f"<span style='font-size:13px'>{ob.get('full_statement','')}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("")
+            if st.button("🗑 この履歴を削除", key=f"del_hist_{item['id']}"):
+                auth.delete_history_item(item["id"], user["id"])
+                st.rerun()
+
+
+# ─────────────────────────────────────────────
+# ページ: 利用規約
+# ─────────────────────────────────────────────
+def page_terms():
+    st.title("📄 利用規約")
+    st.markdown("---")
+    st.markdown("""
+## 利用規約
+
+**最終更新日: 2026年4月24日**
+
+### 第1条（サービスの目的）
+本サービス「クラファン新商品アイデアジェネレーター」は、クラウドファンディングに向けた新商品アイデアの検討を支援することを目的としています。
+
+### 第2条（利用登録）
+利用者は、所定の方法により利用登録を行うことで本サービスを利用できます。登録情報は正確な内容を入力してください。
+
+### 第3条（禁止事項）
+以下の行為を禁止します。
+- 法令または公序良俗に違反する行為
+- 本サービスへの不正アクセス・サーバーへの過度な負荷をかける行為
+- 他のユーザーへの嫌がらせ・迷惑行為
+- 本サービスで生成されたコンテンツの無断転載・二次配布
+
+### 第4条（AIによる生成物の取り扱い）
+- 本サービスが生成するアイデアおよびコンテンツはAIによる自動生成物です。
+- 商用利用する場合は、知的財産権・法令への適合性を利用者自身でご確認ください。
+- 生成内容の正確性・完全性は保証されません。
+
+### 第5条（外部サービスの利用）
+本サービスはGemini API（Google）を使用しています。外部APIの利用にあたっては各サービスの利用規約が適用されます。
+
+### 第6条（プライバシー）
+登録されたメールアドレス・氏名・電話番号は、サービス運営および重要なご連絡にのみ使用します。第三者への提供は行いません。
+
+### 第7条（免責事項）
+本サービスの利用により生じた損害について、運営者は一切の責任を負いません。
+
+### 第8条（変更・停止）
+運営者は事前通知なく本サービスの内容変更・停止を行う場合があります。
+
+---
+お問い合わせ: 本サービス管理者まで
+    """)
+
+
+# ─────────────────────────────────────────────
 # ページ: 管理者
 # ─────────────────────────────────────────────
 def page_admin():
@@ -715,45 +934,141 @@ def page_admin():
         st.error("管理者権限がありません。")
         return
 
-    st.title("👑 管理者ページ - ユーザー一覧")
+    st.title("👑 管理者ページ")
     st.markdown("---")
 
-    users = auth.get_all_users()
-    st.markdown(f"**登録ユーザー数: {len(users)} 名**")
-    st.markdown("")
+    tab_users, tab_smtp = st.tabs(["👥 ユーザー管理", "📧 メール設定（SMTP）"])
 
-    if not users:
-        st.info("登録ユーザーがいません。")
-        return
+    # ── ユーザー管理タブ ──────────────────────────
+    with tab_users:
+        users     = auth.get_all_users()
+        unverified = sum(1 for u in users if not u["is_verified"])
+        st.markdown(f"**登録ユーザー数: {len(users)} 名**　｜　未認証: {unverified} 名")
+        st.markdown("")
 
-    header_cols = st.columns([3, 2, 2, 2, 1, 1, 1])
-    for col, label in zip(
-        header_cols,
-        ["メールアドレス", "名前", "電話番号", "登録日時", "認証", "管理者", "メルマガ"],
-    ):
-        col.markdown(f"**{label}**")
-    st.divider()
+        if not users:
+            st.info("登録ユーザーがいません。")
+        else:
+            header_cols = st.columns([3, 2, 2, 2, 1, 1, 1, 2])
+            for col, label in zip(
+                header_cols,
+                ["メールアドレス", "名前", "電話番号", "登録日時", "認証", "管理者", "メルマガ", "操作"],
+            ):
+                col.markdown(f"**{label}**")
+            st.divider()
 
-    for u in users:
-        cols = st.columns([3, 2, 2, 2, 1, 1, 1])
-        cols[0].write(u["email"])
-        cols[1].write(u["name"])
-        cols[2].write(u["phone"] or "—")
-        cols[3].write(u["created_at"][:16])
-        cols[4].write("✅" if u["is_verified"] else "❌")
-        cols[5].write("👑" if u["is_admin"] else "—")
-        cols[6].write("✅" if u["newsletter_consent"] else "—")
+            for u in users:
+                cols = st.columns([3, 2, 2, 2, 1, 1, 1, 2])
+                cols[0].write(u["email"])
+                cols[1].write(u["name"])
+                cols[2].write(u["phone"] or "—")
+                cols[3].write(u["created_at"][:16])
+                cols[4].write("✅" if u["is_verified"] else "❌ 未認証")
+                cols[5].write("👑" if u["is_admin"] else "—")
+                cols[6].write("✅" if u["newsletter_consent"] else "—")
+
+                with cols[7]:
+                    if not u["is_verified"]:
+                        if st.button("認証する", key=f"verify_{u['id']}", type="primary",
+                                     use_container_width=True):
+                            auth.set_user_verified(u["id"], True)
+                            st.success(f"{u['name']} を認証済みにしました")
+                            st.rerun()
+                    else:
+                        if st.button("認証取消", key=f"unverify_{u['id']}", type="secondary",
+                                     use_container_width=True):
+                            auth.set_user_verified(u["id"], False)
+                            st.rerun()
+
+                if not u["is_admin"] and u["id"] != user.get("id"):
+                    with st.expander(f"⚠️ {u['name']} を削除", expanded=False):
+                        st.warning(f"**{u['email']}** のアカウントとセッションを完全削除します。この操作は取り消せません。")
+                        if st.button("削除する", key=f"delete_{u['id']}", type="primary"):
+                            auth.delete_user(u["id"])
+                            st.success(f"{u['name']} を削除しました")
+                            st.rerun()
+
+    # ── SMTP設定タブ ──────────────────────────────
+    with tab_smtp:
+        st.markdown("#### メール送信設定（SMTP）")
+        st.caption(
+            "設定するとユーザー登録時の認証メール・パスワードリセットメールが自動送信されます。"
+            "Gmailの場合は「アプリパスワード」（16桁）を使用してください。"
+        )
+        st.markdown("")
+
+        cfg = auth._get_smtp_config()
+
+        col_l, col_r = st.columns(2)
+        with col_l:
+            smtp_host = st.text_input("SMTPホスト", value=cfg["host"],
+                                      placeholder="smtp.gmail.com")
+            smtp_user = st.text_input("SMTPユーザー（送信元メールアドレス）",
+                                      value=cfg["user"],
+                                      placeholder="example@gmail.com")
+            smtp_from = st.text_input("送信元表示名メール（省略可）",
+                                      value=cfg["from"],
+                                      placeholder="example@gmail.com")
+        with col_r:
+            smtp_port = st.number_input("SMTPポート", value=cfg["port"],
+                                        min_value=1, max_value=65535, step=1)
+            smtp_pass = st.text_input("SMTPパスワード（アプリパスワード）",
+                                      type="password",
+                                      value=cfg["pass"],
+                                      placeholder="xxxx xxxx xxxx xxxx")
+
+        col_save, col_test = st.columns(2)
+        with col_save:
+            if st.button("💾 保存する", type="primary", use_container_width=True):
+                auth.set_setting("smtp_host", smtp_host)
+                auth.set_setting("smtp_port", str(smtp_port))
+                auth.set_setting("smtp_user", smtp_user)
+                auth.set_setting("smtp_pass", smtp_pass)
+                auth.set_setting("smtp_from", smtp_from or smtp_user)
+                st.success("✅ SMTP設定を保存しました。")
+
+        with col_test:
+            test_to = st.text_input("テスト送信先メール", placeholder="test@example.com",
+                                     label_visibility="collapsed")
+            if st.button("📨 テスト送信", use_container_width=True):
+                if not test_to:
+                    st.error("テスト送信先を入力してください。")
+                else:
+                    ok, err = auth._send_email(
+                        test_to,
+                        "【クラファンツール】SMTPテスト送信",
+                        "SMTPの設定が正常に完了しています。",
+                        "<p>SMTPの設定が正常に完了しています。</p>",
+                    )
+                    if ok:
+                        st.success(f"✅ {test_to} にテストメールを送信しました。")
+                    else:
+                        st.error(f"❌ 送信失敗: {err}")
+
+        st.markdown("---")
+        st.markdown("##### Gmail アプリパスワードの取得手順")
+        st.markdown("""
+1. [Googleアカウント](https://myaccount.google.com/) にログイン
+2. 「セキュリティ」→「2段階認証プロセス」を有効化
+3. 「アプリパスワード」→「その他」→ 名前を入力して生成
+4. 表示された16桁のパスワードを上の「SMTPパスワード」に入力
+        """)
 
 
 # ─────────────────────────────────────────────
 # ルーティング
 # ─────────────────────────────────────────────
-cm = _get_cookie_manager()
+
+# パスワードリセット画面（ログイン不要）
+if reset_token:
+    show_reset_password_form(reset_token)
+    st.stop()
+
 user = st.session_state.get("user")
 
 # Cookieからの自動ログイン
 if user is None:
-    token = cm.get("st_session")
+    token = _cookie_get("st_session")
     if token:
         saved_user = auth.validate_session(token)
         if saved_user:
@@ -778,27 +1093,33 @@ st.markdown("""
 # ページ定義
 _home_page     = st.Page(page_home,     title="ホーム",   icon="🏠", default=True)
 _settings_page = st.Page(page_settings, title="設定",     icon="⚙️")
-_pages = [_home_page, _settings_page]
+_history_page  = st.Page(page_history,  title="履歴",     icon="📚")
+_terms_page    = st.Page(page_terms,    title="利用規約", icon="📄")
+_pages         = [_home_page, _settings_page, _history_page, _terms_page]
+
 _admin_page = None
 if user.get("is_admin"):
     _admin_page = st.Page(page_admin, title="管理者", icon="👑")
     _pages.append(_admin_page)
 
-# ナビゲーション（サイドバー非表示）
 pg = st.navigation(_pages, position="hidden")
 
 # ─── トップナビゲーションバー ───────────────────
 col_left, col_right = st.columns([7, 3])
 
 with col_left:
-    lc1, lc2, lc3, _ = st.columns([1.5, 1.5, 1.5, 5.5])
+    lc1, lc2, lc3, lc4, lc5, _ = st.columns([1.2, 1.2, 1.2, 1.5, 1.2, 3.7])
     with lc1:
-        st.page_link(_home_page, label="ホーム", icon="🏠")
+        st.page_link(_home_page,     label="ホーム",   icon="🏠")
     with lc2:
-        st.page_link(_settings_page, label="設定", icon="⚙️")
+        st.page_link(_settings_page, label="設定",     icon="⚙️")
     with lc3:
+        st.page_link(_history_page,  label="履歴",     icon="📚")
+    with lc4:
+        st.page_link(_terms_page,    label="利用規約", icon="📄")
+    with lc5:
         if _admin_page:
-            st.page_link(_admin_page, label="管理者", icon="👑")
+            st.page_link(_admin_page, label="管理者",  icon="👑")
 
 with col_right:
     rc1, rc2 = st.columns([3, 2])
@@ -810,10 +1131,10 @@ with col_right:
         )
     with rc2:
         if st.button("ログアウト", use_container_width=True):
-            token = cm.get("st_session")
+            token = _cookie_get("st_session")
             if token:
                 auth.delete_session(token)
-            cm.delete("st_session", key="del_logout")
+            _cookie_delete("st_session", "del_logout")
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.rerun()
