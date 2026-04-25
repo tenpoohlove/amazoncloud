@@ -1504,11 +1504,22 @@ st.markdown("""
   padding: 0 !important;
   box-shadow: none !important;
 }
-/* カード選択ボタン */
-[data-testid="stButton"] button {
-  min-height: 56px !important;
+/* カード選択ボタン（高さ・行間） */
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-primary"] {
+  min-height: 42px !important;
   white-space: pre-wrap !important;
-  line-height: 1.5 !important;
+  line-height: 1.4 !important;
+}
+/* 選択中カードを落ち着いたブルーに（生成ボタンとは別セレクター） */
+[data-testid="stBaseButton-primary"] {
+  background-color: #1e3a5f !important;
+  border: 2px solid #3a7bd5 !important;
+  color: #c8e0ff !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+  background-color: #254b7a !important;
+  color: #e0f0ff !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
