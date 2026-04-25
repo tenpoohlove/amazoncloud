@@ -92,6 +92,8 @@ for _k, _v in [
     ("api_test_result", None),
     ("deepdiving_id", None),
     ("cf_btn_loading", False),
+    ("gen_btn_loading", False),
+    ("regen_btn_loading", False),
     ("diff_cb_all", True),
     ("diff_cb_1", False),
     ("diff_cb_2", False),
@@ -440,7 +442,43 @@ def page_home():
         st.rerun()
 
 
+def _gen_overlay(title: str, subtitle: str = "") -> st.delta_generator.DeltaGenerator:
+    """全画面オーバーレイを表示しステータス更新用のplaceholderを返す。"""
+    st.markdown(f"""
+<style>@keyframes _ov_spin {{ to {{ transform: rotate(360deg); }} }}</style>
+<div style='position:fixed;top:0;left:0;width:100vw;height:100vh;
+            background:rgba(0,0,0,0.55);z-index:99999;
+            display:flex;align-items:center;justify-content:center;
+            pointer-events:all;cursor:not-allowed'>
+  <div style='background:#1a1a2e;border-radius:16px;padding:40px 56px;text-align:center;
+              box-shadow:0 8px 32px rgba(0,0,0,0.5)'>
+    <div style='width:48px;height:48px;border:4px solid rgba(255,255,255,0.2);
+                border-top-color:#4fa3ff;border-radius:50%;
+                animation:_ov_spin 0.8s linear infinite;margin:0 auto 20px'></div>
+    <div style='font-size:20px;font-weight:700;color:#ffffff;margin-bottom:8px'>{title}</div>
+    <div style='font-size:14px;color:#aaaacc'>{subtitle}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+    return st.empty()
+
+
+def _set_status(ph, text: str):
+    """画面下部に固定表示されるステータストーストを更新する。"""
+    ph.markdown(
+        f"<div style='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);"
+        f"background:rgba(15,35,70,0.95);color:#ffffff;padding:10px 28px;"
+        f"border-radius:8px;font-size:14px;font-weight:500;z-index:100000;"
+        f"box-shadow:0 4px 16px rgba(0,0,0,0.5);white-space:nowrap'>"
+        f"⏳ {text}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _show_input():
+    if st.session_state.get("gen_btn_loading"):
+        _gen_overlay("アイデアを生成中...", "しばらくお待ちください（30〜60秒）")
+
     st.title("💡 クラファン新商品アイデアジェネレーター")
     st.caption("Amazon商品URLを貼るだけで新商品アイデア10個を生成。気になるアイデアはさらに深掘りできます。")
 
@@ -456,17 +494,25 @@ def _show_input():
 
     # ① URL入力カード
     with st.container(border=True):
-        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 1　分析したい商品</p>", unsafe_allow_html=True)
-        url = st.text_input(
-            "🔗 Amazon 商品URL",
-            value=st.session_state.get("url", ""),
-            placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
-            key="url_input_field",
-        )
+        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 1　分析したい商品</p>", unsafe_allow_html=True)
+        _u_col, _clr_col = st.columns([9, 1])
+        with _u_col:
+            url = st.text_input(
+                "🔗 Amazon 商品URL",
+                value=st.session_state.get("url", ""),
+                placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
+                key="url_input_field",
+            )
+        with _clr_col:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button("✕", key="url_clear_btn", help="URLをクリア", use_container_width=True):
+                st.session_state["url"] = ""
+                st.session_state["url_input_field"] = ""
+                st.rerun()
 
     # ② 難易度フィルターカード
     with st.container(border=True):
-        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
         _diff_opts = [
             ("all", "すべて", "", "すべての難易度を対象にします"),
             (1, "★1", "超低コスト ⓘ", DIFFICULTY[1]["desc"]),
@@ -481,7 +527,7 @@ def _show_input():
                 _sel = st.session_state.get("diff_cb_all", True)
             else:
                 _sel = st.session_state.get(f"diff_cb_{_key}", False)
-            _lbl = f"**{_main}**  \n{_sub}" if _sub else f"**{_main}**"
+            _lbl = f"**{_main}** {_sub}" if _sub else f"**{_main}**"
             if _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
                            type="primary" if _sel else "secondary", use_container_width=True):
                 if _key == "all":
@@ -502,25 +548,28 @@ def _show_input():
 
     # ③ 詳細設定カード（ラジオはフォーム外でcolumns均等配置）
     with st.container(border=True):
-        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
 
         st.markdown("<p style='font-size:13px;color:#888;margin:4px 0 6px'>🔍 類似品レビュー数</p>", unsafe_allow_html=True)
         _sim_opts = [(0, "0件", "対象商品のみ ⚡約30秒"), (5, "5件", "+40件 約1分"), (10, "10件", "+80件 約1.5分"), (20, "20件", "+160件 約2〜3分")]
         _sc = st.columns(4)
         for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
             _sel = st.session_state.get("sim_count", 5) == _val
-            if _col.button(f"**{_main}**  \n{_sub}", key=f"sim_card_{_val}",
+            if _col.button(f"**{_main}**", key=f"sim_card_{_val}", help=_sub,
                            type="primary" if _sel else "secondary", use_container_width=True):
                 st.session_state["sim_count"] = _val
                 st.rerun()
         sim_count = st.session_state.get("sim_count", 5)
 
         st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
-        _mode_opts = [("amazon", "🛒 Amazonレビューのみ", "実レビュー・高速"), ("gemini", "🔍 Gemini Web検索込み", "大量収集・低速")]
+        _mode_opts = [
+            ("amazon", "🛒 Amazonのみ", "実レビューのみ収集・高速"),
+            ("gemini", "🔍 Gemini Web検索込み", "Amazon＋Web全体・大量収集・低速"),
+        ]
         _mc = st.columns(2)
         for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
             _sel = st.session_state.get("review_mode", "amazon") == _val
-            if _col.button(f"**{_main}**  \n{_sub}", key=f"mode_card_{_val}",
+            if _col.button(f"**{_main}**", key=f"mode_card_{_val}", help=_sub,
                            type="primary" if _sel else "secondary", use_container_width=True):
                 st.session_state["review_mode"] = _val
                 st.rerun()
@@ -528,13 +577,16 @@ def _show_input():
         if review_mode == "gemini":
             st.caption("※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
 
-        with st.form("main_form"):
-            submitted = st.form_submit_button(
-                "🔍 アイデアを生成する", use_container_width=True, type="primary"
-            )
+        if st.session_state.get("gen_btn_loading"):
+            st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="gen_btn")
+        else:
+            if st.button("🔍 アイデアを生成する", use_container_width=True, type="primary", key="gen_btn"):
+                st.session_state["gen_btn_loading"] = True
+                st.rerun()
 
-    if not submitted:
+    if not st.session_state.get("gen_btn_loading"):
         return
+    st.session_state["gen_btn_loading"] = False
 
     url = st.session_state.get("url_input_field", "")
     if not url:
@@ -552,12 +604,10 @@ def _show_input():
         st.error("Gemini APIキーが未設定です。左メニューの「設定」から入力してください。")
         return
 
-    progress_bar = st.progress(0)
-    status_text  = st.empty()
+    _ph = st.empty()
 
     def update_progress(msg, pct):
-        progress_bar.progress(pct)
-        status_text.text(f"⏳ {msg}")
+        _set_status(_ph, msg)
 
     try:
         product_data = scrape_all(
@@ -567,18 +617,17 @@ def _show_input():
             api_key=api_key,
             use_gemini_reviews=(review_mode == "gemini"),
         )
-        update_progress("AIがアイデア10個を生成中...", 85)
+        _set_status(_ph, "AIがアイデア10個を生成中...")
         diff_filter = selected_diffs if selected_diffs else None
         ideas = generate_ideas_fast(product_data, diff_filter, api_key)
-        progress_bar.progress(100)
-        status_text.empty()
+        _ph.empty()
     except RuntimeError as e:
-        progress_bar.empty(); status_text.empty()
+        _ph.empty()
         st.error(f"スクレイピングエラー: {e}")
         st.session_state["last_error"] = str(e)
         return
     except Exception as e:
-        progress_bar.empty(); status_text.empty()
+        _ph.empty()
         st.error(f"エラーが発生しました: {e}")
         st.session_state["last_error"] = str(e)
         return
@@ -664,6 +713,8 @@ def _show_ideas():
 
     deepdiving_id = st.session_state.get("deepdiving_id")
     if deepdiving_id is not None:
+        _idea_title = next((i.get("title", "") for i in ideas if i["id"] == deepdiving_id), "")
+        _gen_overlay(f"「{_idea_title}」を分析中...", "詳細分析を生成しています（10〜30秒）")
         st.session_state["selected_idea_id"] = deepdiving_id
         st.session_state["deepdiving_id"] = None
         st.session_state["stage"] = "analyzing_idea"
@@ -688,21 +739,11 @@ def _show_analyzing_idea():
         st.rerun()
         return
 
-    st.markdown(
-        f"<div style='border:2px solid #2c7be5;padding:24px;"
-        f"border-radius:12px;text-align:center;margin-bottom:16px;background:#1a3a5c'>"
-        f"<div style='font-size:32px;margin-bottom:8px'>🔍</div>"
-        f"<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
-        f"「{idea['title']}」を詳細分析中...</div>"
-        f"<div style='font-size:15px;color:#b0cfef'>Q1〜Q10の詳細分析を生成しています（10〜30秒）</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    progress = st.progress(0, text="詳細分析を生成中...")
+    _ph = _gen_overlay(f"「{idea['title']}」を分析中...", "詳細分析を生成しています（10〜30秒）")
+    _set_status(_ph, "詳細分析を生成中...")
     try:
-        progress.progress(20, text="AIで詳細分析を生成中...")
+        _set_status(_ph, "AIで詳細分析を生成中...")
         full_idea = generate_idea_analysis(idea, product_data, api_key)
-        progress.progress(90, text="完了！")
         for j, x in enumerate(ideas):
             if x["id"] == selected_id:
                 ideas[j] = full_idea
@@ -710,9 +751,10 @@ def _show_analyzing_idea():
         st.session_state["ideas"] = ideas
         st.session_state["stage"] = "analysis"
         _save_draft()
-        progress.progress(100, text="完了！")
+        _ph.empty()
         st.rerun()
     except Exception as e:
+        _ph.empty()
         st.error(f"分析生成エラー: {e}")
         if st.button("← アイデア一覧に戻る"):
             st.session_state["stage"] = "ideas"
@@ -834,41 +876,12 @@ def _show_analysis():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.session_state.get("cf_btn_loading"):
-            st.markdown("""
-<style>
-@keyframes _cf_spin { to { transform: rotate(360deg); } }
-@keyframes _cf_shimmer {
-  0%   { background-position: 200% center; }
-  100% { background-position: -200% center; }
-}
-.cf-gen-loading {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; padding: 0.58rem 1rem;
-  background: linear-gradient(90deg, #0052a3, #1a8cff, #0052a3);
-  background-size: 200% auto;
-  animation: _cf_shimmer 1.2s linear infinite;
-  color: white; border-radius: 8px;
-  font-size: 15px; font-weight: 600;
-  cursor: not-allowed; user-select: none;
-}
-.cf-gen-spinner {
-  width: 16px; height: 16px; flex-shrink: 0;
-  border: 2.5px solid rgba(255,255,255,0.35);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: _cf_spin 0.75s linear infinite;
-}
-</style>
-<div class="cf-gen-loading">
-  <div class="cf-gen-spinner"></div>
-  クラファンページを生成中...
-</div>
-""", unsafe_allow_html=True)
+            st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="cf_gen_btn")
             st.session_state["cf_btn_loading"] = False
             st.session_state["stage"] = "deepdive"
             st.rerun()
         else:
-            if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary"):
+            if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary", key="cf_gen_btn"):
                 st.session_state["cf_btn_loading"] = True
                 st.rerun()
 
@@ -906,27 +919,19 @@ def _show_deepdive():
 
     cache = st.session_state.get("deep_dive_cache", {})
     if selected_id not in cache:
-        st.markdown(
-            "<div style='border:2px solid #2c7be5;padding:24px;"
-            "border-radius:12px;text-align:center;margin-bottom:16px;background:#1a3a5c'>"
-            "<div style='font-size:32px;margin-bottom:8px'>🚀</div>"
-            "<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
-            "Makuakeパターンでページ生成中...</div>"
-            "<div style='font-size:15px;color:#b0cfef'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        progress = st.progress(0, text="分析データを読み込み中...")
+        _ph = _gen_overlay("クラファンページを生成中...", "10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）")
+        _set_status(_ph, "分析データを読み込み中...")
         try:
-            progress.progress(20, text="Makuakeパターンでページ構成を生成中...")
+            _set_status(_ph, "ページ構成を生成中...")
             deep_dive = generate_deep_dive_content(idea, product_data, api_key)
-            progress.progress(90, text="仕上げ中...")
+            _set_status(_ph, "仕上げ中...")
             cache[selected_id] = deep_dive
             st.session_state["deep_dive_cache"] = cache
             _save_draft()
-            progress.progress(100, text="完了！")
+            _ph.empty()
             st.rerun()
         except Exception as e:
+            _ph.empty()
             st.error(f"生成に失敗しました: {e}")
             return
     else:
@@ -1097,35 +1102,35 @@ def _show_deepdive():
                     unsafe_allow_html=True,
                 )
                 regen_label = "🔄 別パターンを生成する"
-            if st.button(
-                regen_label,
-                key="regen_with_checklist",
-                use_container_width=True,
-                type="primary",
-            ):
-                st.markdown(
-                    "<div style='border:2px solid #2c7be5;padding:20px;"
-                    "border-radius:12px;text-align:center;margin:12px 0;background:#1a3a5c'>"
-                    "<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
-                    "🔄 弱点を解消した改善版を生成中...</div>"
-                    "<div style='font-size:14px;color:#b0cfef'>要強化項目のフィードバックを反映しています（30〜60秒）</div>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-                progress_r = st.progress(0, text="改善版を生成中...")
+            if st.session_state.get("regen_btn_loading"):
+                st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="regen_with_checklist")
+                _ph_r = _gen_overlay("改善版を生成中...", "要強化項目のフィードバックを反映しています（30〜60秒）")
+                _set_status(_ph_r, "改善版を生成中...")
                 try:
-                    progress_r.progress(20, text="フィードバックを反映中...")
+                    _set_status(_ph_r, "フィードバックを反映中...")
                     improved = regenerate_with_checklist(
                         idea, product_data, checklist, api_key
                     )
-                    progress_r.progress(90, text="完了！")
+                    _set_status(_ph_r, "仕上げ中...")
                     cache[selected_id] = improved
                     st.session_state["deep_dive_cache"] = cache
                     _save_draft()
-                    progress_r.progress(100, text="完了！")
+                    _ph_r.empty()
+                    st.session_state["regen_btn_loading"] = False
                     st.rerun()
                 except Exception as e:
+                    _ph_r.empty()
+                    st.session_state["regen_btn_loading"] = False
                     st.error(f"再生成に失敗しました: {e}")
+            else:
+                if st.button(
+                    regen_label,
+                    key="regen_with_checklist",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state["regen_btn_loading"] = True
+                    st.rerun()
 
         st.divider()
         _render_pdf_button(product_data, idea, deep_dive, "tab_check")
@@ -1504,21 +1509,21 @@ st.markdown("""
   padding: 0 !important;
   box-shadow: none !important;
 }
-/* カード選択ボタン（高さ・行間） */
-[data-testid="stBaseButton-secondary"],
-[data-testid="stBaseButton-primary"] {
-  min-height: 42px !important;
+/* カード選択ボタン（高さ・行間）*/
+[data-testid="stHorizontalBlock"] [data-testid="stBaseButton-secondary"],
+[data-testid="stHorizontalBlock"] [data-testid="stBaseButton-primary"] {
+  min-height: 36px !important;
   white-space: pre-wrap !important;
   line-height: 1.4 !important;
   cursor: help !important;
 }
-/* 選択中カードを柔らかい透け赤に */
-[data-testid="stBaseButton-primary"] {
+/* 選択中カードを柔らかい透け赤に（列レイアウト内のみ） */
+[data-testid="stHorizontalBlock"] [data-testid="stBaseButton-primary"] {
   background-color: rgba(220, 80, 80, 0.12) !important;
   border: 1.5px solid rgba(220, 80, 80, 0.45) !important;
   color: #e89090 !important;
 }
-[data-testid="stBaseButton-primary"]:hover {
+[data-testid="stHorizontalBlock"] [data-testid="stBaseButton-primary"]:hover {
   background-color: rgba(220, 80, 80, 0.2) !important;
   color: #f0a8a8 !important;
 }
