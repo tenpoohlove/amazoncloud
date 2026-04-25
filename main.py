@@ -1504,6 +1504,7 @@ with col_left:
     with lc1:
         if st.button("🏠 ホーム", key="nav_home_btn"):
             st.session_state["stage"] = "input"
+            _save_draft()  # DBのstageも"input"に更新してリロード対策
             st.switch_page(_home_page)
     with lc2:
         st.page_link(_settings_page, label="設定",     icon="⚙️")
