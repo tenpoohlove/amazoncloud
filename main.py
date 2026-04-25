@@ -668,11 +668,11 @@ def _show_analyzing_idea():
 
     st.markdown(
         f"<div style='border:2px solid #2c7be5;padding:24px;"
-        f"border-radius:12px;text-align:center;margin-bottom:16px'>"
+        f"border-radius:12px;text-align:center;margin-bottom:16px;background:#1a3a5c'>"
         f"<div style='font-size:32px;margin-bottom:8px'>🔍</div>"
-        f"<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#1a1a1a'>"
+        f"<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
         f"「{idea['title']}」を詳細分析中...</div>"
-        f"<div style='font-size:15px;color:#1a1a1a'>Q1〜Q10の詳細分析を生成しています（10〜30秒）</div>"
+        f"<div style='font-size:15px;color:#b0cfef'>Q1〜Q10の詳細分析を生成しています（10〜30秒）</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -1074,10 +1074,10 @@ def _show_deepdive():
             ):
                 st.markdown(
                     "<div style='border:2px solid #2c7be5;padding:20px;"
-                    "border-radius:12px;text-align:center;margin:12px 0;color:#1a1a1a'>"
-                    "<div style='font-size:20px;font-weight:bold;margin-bottom:6px'>"
+                    "border-radius:12px;text-align:center;margin:12px 0;background:#1a3a5c'>"
+                    "<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
                     "🔄 弱点を解消した改善版を生成中...</div>"
-                    "<div style='font-size:14px'>要強化項目のフィードバックを反映しています（30〜60秒）</div>"
+                    "<div style='font-size:14px;color:#b0cfef'>要強化項目のフィードバックを反映しています（30〜60秒）</div>"
                     "</div>",
                     unsafe_allow_html=True,
                 )
