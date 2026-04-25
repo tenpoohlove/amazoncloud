@@ -98,6 +98,8 @@ for _k, _v in [
     ("diff_cb_3", False),
     ("diff_cb_4", False),
     ("diff_cb_5", False),
+    ("sim_count", 5),
+    ("review_mode", "amazon"),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -487,43 +489,36 @@ def _show_input():
     else:
         selected_diffs = [k for k, v in _checked.items() if v]
 
-    # ③ 詳細設定カード
+    # ③ 詳細設定カード（ラジオはフォーム外でcolumns均等配置）
     with st.container(border=True):
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
+
+        st.markdown("**🔍 類似品レビュー数**")
+        _sim_labels = {
+            0:  "0件（対象商品のみ）⚡ 約30秒",
+            5:  "5件（+40件）約1分",
+            10: "10件（+80件）約1.5分",
+            20: "20件（+160件）約2〜3分",
+        }
+        _sim_cols = st.columns(4)
+        for _i, (_val, _label) in enumerate(_sim_labels.items()):
+            _checked_sim = st.session_state.get("sim_count", 5) == _val
+            if _sim_cols[_i].checkbox(_label, value=_checked_sim, key=f"sim_cb_{_val}"):
+                st.session_state["sim_count"] = _val
+        sim_count = st.session_state.get("sim_count", 5)
+
+        st.markdown("**📝 レビュー収集モード**")
+        _mode_cols = st.columns(2)
+        _mode_amazon = st.session_state.get("review_mode", "amazon") == "amazon"
+        if _mode_cols[0].checkbox("🛒 Amazonレビューのみ（実レビュー・高速）", value=_mode_amazon, key="mode_cb_amazon"):
+            st.session_state["review_mode"] = "amazon"
+        if _mode_cols[1].checkbox("🔍 Gemini Web検索レビュー込み（大量収集・低速）", value=not _mode_amazon, key="mode_cb_gemini"):
+            st.session_state["review_mode"] = "gemini"
+        review_mode = st.session_state.get("review_mode", "amazon")
+        if review_mode == "gemini":
+            st.caption("※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
+
         with st.form("main_form"):
-            col_sim, col_mode = st.columns([2, 2])
-            _sim_options = {
-                0:  "0件（対象商品のみ）⚡ 約30秒",
-                5:  "5件（+40件）約1分",
-                10: "10件（+80件）約1.5分",
-                20: "20件（+160件）約2〜3分",
-            }
-            sim_count = st.radio(
-                "🔍 類似品レビュー数",
-                options=list(_sim_options.keys()),
-                format_func=lambda x: _sim_options[x],
-                index=1,
-                horizontal=True,
-            )
-
-            st.markdown("**📝 レビュー収集モード**")
-            review_mode = st.radio(
-                "レビュー収集モード",
-                options=["amazon", "gemini"],
-                format_func=lambda x: (
-                    "🛒 Amazonレビューのみ（実レビュー・高速）"
-                    if x == "amazon" else
-                    "🔍 Gemini Web検索レビュー込み（大量収集・低速）"
-                ),
-                horizontal=True,
-                label_visibility="collapsed",
-            )
-            if review_mode == "gemini":
-                st.caption(
-                    "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
-                    "AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。"
-                )
-
             submitted = st.form_submit_button(
                 "🔍 アイデアを生成する", use_container_width=True, type="primary"
             )
