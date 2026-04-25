@@ -105,15 +105,6 @@ for _k, _v in [
         st.session_state[_k] = _v
 
 
-def _on_diff_all_change():
-    if st.session_state["diff_cb_all"]:
-        for _i in range(1, 6):
-            st.session_state[f"diff_cb_{_i}"] = True
-
-
-def _on_diff_item_change():
-    all_on = all(st.session_state.get(f"diff_cb_{_i}", False) for _i in range(1, 6))
-    st.session_state["diff_cb_all"] = all_on
 
 # ─────────────────────────────────────────────
 # クエリパラメータ処理（メール認証・パスワードリセット）
@@ -476,13 +467,33 @@ def _show_input():
     # ② 難易度フィルターカード
     with st.container(border=True):
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
-        _dcols = st.columns(6)
-        _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
-        _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
-        _dcols[2].checkbox("★2 低コスト",   key="diff_cb_2",   on_change=_on_diff_item_change)
-        _dcols[3].checkbox("★3 中コスト",   key="diff_cb_3",   on_change=_on_diff_item_change)
-        _dcols[4].checkbox("★4 高難度",     key="diff_cb_4",   on_change=_on_diff_item_change)
-        _dcols[5].checkbox("★5 超高難度",   key="diff_cb_5",   on_change=_on_diff_item_change)
+        _diff_opts = [
+            ("all", "すべて", ""),
+            (1, "★1", "超低コスト"),
+            (2, "★2", "低コスト"),
+            (3, "★3", "中コスト"),
+            (4, "★4", "高難度"),
+            (5, "★5", "超高難度"),
+        ]
+        _dc = st.columns(6)
+        for _col, (_key, _main, _sub) in zip(_dc, _diff_opts):
+            if _key == "all":
+                _sel = st.session_state.get("diff_cb_all", True)
+            else:
+                _sel = st.session_state.get(f"diff_cb_{_key}", False)
+            _lbl = f"**{_main}**  \n{_sub}" if _sub else f"**{_main}**"
+            if _col.button(_lbl, key=f"diff_card_{_key}",
+                           type="primary" if _sel else "secondary", use_container_width=True):
+                if _key == "all":
+                    st.session_state["diff_cb_all"] = True
+                    for _i in range(1, 6):
+                        st.session_state[f"diff_cb_{_i}"] = True
+                else:
+                    st.session_state[f"diff_cb_{_key}"] = not _sel
+                    st.session_state["diff_cb_all"] = all(
+                        st.session_state.get(f"diff_cb_{_i}", False) for _i in range(1, 6)
+                    )
+                st.rerun()
     _checked = {k: st.session_state.get(f"diff_cb_{k}", False) for k in range(1, 6)}
     if st.session_state.get("diff_cb_all") or not any(_checked.values()):
         selected_diffs = []
