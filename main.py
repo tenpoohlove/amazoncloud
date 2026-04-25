@@ -1029,7 +1029,7 @@ def _show_deepdive():
                     )
 
             if ok_items:
-                with st.expander(f"✅ 準備できている項目（{len(ok_items)}件）", expanded=False):
+                with st.expander(f"✅ コンセプトの強み（{len(ok_items)}件）", expanded=False):
                     for item in ok_items:
                         st.markdown(
                             f"<div style='padding:10px 14px;border-radius:8px;"
