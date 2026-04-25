@@ -92,9 +92,26 @@ for _k, _v in [
     ("api_test_result", None),
     ("deepdiving_id", None),
     ("cf_btn_loading", False),
+    ("diff_cb_all", True),
+    ("diff_cb_1", False),
+    ("diff_cb_2", False),
+    ("diff_cb_3", False),
+    ("diff_cb_4", False),
+    ("diff_cb_5", False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
+
+
+def _on_diff_all_change():
+    if st.session_state["diff_cb_all"]:
+        for _i in range(1, 6):
+            st.session_state[f"diff_cb_{_i}"] = True
+
+
+def _on_diff_item_change():
+    all_on = all(st.session_state.get(f"diff_cb_{_i}", False) for _i in range(1, 6))
+    st.session_state["diff_cb_all"] = all_on
 
 # ─────────────────────────────────────────────
 # クエリパラメータ処理（メール認証・パスワードリセット）
@@ -444,6 +461,22 @@ def _show_input():
             st.session_state["last_error"] = ""
             st.rerun()
 
+    # 難易度フィルター（フォーム外でreactiveに）
+    st.markdown("**📊 難易度フィルター**")
+    _dcols = st.columns(6)
+    _dcols[0].checkbox("すべて",      key="diff_cb_all", on_change=_on_diff_all_change)
+    _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
+    _dcols[2].checkbox("★2 低コスト",   key="diff_cb_2",   on_change=_on_diff_item_change)
+    _dcols[3].checkbox("★3 中コスト",   key="diff_cb_3",   on_change=_on_diff_item_change)
+    _dcols[4].checkbox("★4 高難度",     key="diff_cb_4",   on_change=_on_diff_item_change)
+    _dcols[5].checkbox("★5 超高難度",   key="diff_cb_5",   on_change=_on_diff_item_change)
+    _checked = {k: st.session_state.get(f"diff_cb_{k}", False) for k in range(1, 6)}
+    if st.session_state.get("diff_cb_all") or not any(_checked.values()):
+        selected_diffs = []
+    else:
+        selected_diffs = [k for k, v in _checked.items() if v]
+
+    st.markdown("")
     with st.form("main_form"):
         url = st.text_input(
             "🔗 Amazon 商品URL",
@@ -451,23 +484,7 @@ def _show_input():
             placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
         )
 
-        col_diff, col_sim, col_mode = st.columns([2, 2, 2])
-
-        with col_diff:
-            st.markdown("**📊 難易度フィルター**")
-            cb_all = st.checkbox("すべて", value=True, key="diff_cb_all")
-            _cb_row1, _cb_row2 = st.columns(2), st.columns(2)
-            cb1 = _cb_row1[0].checkbox("★1 超低コスト", key="diff_cb_1")
-            cb2 = _cb_row1[1].checkbox("★2 低コスト",   key="diff_cb_2")
-            cb3 = _cb_row2[0].checkbox("★3 中コスト",   key="diff_cb_3")
-            cb4 = _cb_row2[1].checkbox("★4 高難度",     key="diff_cb_4")
-            cb5_col, _ = st.columns(2)
-            cb5 = cb5_col.checkbox("★5 超高難度",       key="diff_cb_5")
-            _checked = {1: cb1, 2: cb2, 3: cb3, 4: cb4, 5: cb5}
-            if cb_all or not any(_checked.values()):
-                selected_diffs = []
-            else:
-                selected_diffs = [k for k, v in _checked.items() if v]
+        col_sim, col_mode = st.columns([2, 2])
 
         with col_sim:
             _sim_options = {
