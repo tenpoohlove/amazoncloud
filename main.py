@@ -469,11 +469,11 @@ def _show_input():
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
         _diff_opts = [
             ("all", "すべて", "", "すべての難易度を対象にします"),
-            (1, "★1", "超低コスト", DIFFICULTY[1]["desc"]),
-            (2, "★2", "低コスト",   DIFFICULTY[2]["desc"]),
-            (3, "★3", "中コスト",   DIFFICULTY[3]["desc"]),
-            (4, "★4", "高難度",     DIFFICULTY[4]["desc"]),
-            (5, "★5", "超高難度",   DIFFICULTY[5]["desc"]),
+            (1, "★1", "超低コスト ⓘ", DIFFICULTY[1]["desc"]),
+            (2, "★2", "低コスト ⓘ",   DIFFICULTY[2]["desc"]),
+            (3, "★3", "中コスト ⓘ",   DIFFICULTY[3]["desc"]),
+            (4, "★4", "高難度 ⓘ",     DIFFICULTY[4]["desc"]),
+            (5, "★5", "超高難度 ⓘ",   DIFFICULTY[5]["desc"]),
         ]
         _dc = st.columns(6)
         for _col, (_key, _main, _sub, _help) in zip(_dc, _diff_opts):
@@ -1510,6 +1510,7 @@ st.markdown("""
   min-height: 42px !important;
   white-space: pre-wrap !important;
   line-height: 1.4 !important;
+  cursor: help !important;
 }
 /* 選択中カードを柔らかい透け赤に */
 [data-testid="stBaseButton-primary"] {
