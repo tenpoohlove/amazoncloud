@@ -324,7 +324,8 @@ def _collect_from_product_reviews_page(
     asin: str,
     domain: str,
     session: requests.Session,
-    max_pages: int = 3,
+    max_pages: int = 5,
+    sort_by: str = "recent",
 ) -> list[dict]:
     """
     /product-reviews/ ページから複数ページにわたってレビューを収集する。
@@ -332,16 +333,18 @@ def _collect_from_product_reviews_page(
     """
     results = []
     seen_texts: set[str] = set()
+    referer = f"{domain}/dp/{asin}"
 
     for page in range(1, max_pages + 1):
         url = (
             f"{domain}/product-reviews/{asin}"
             f"?ie=UTF8&reviewerType=all_reviews"
-            f"&sortBy=recent&pageNumber={page}"
+            f"&sortBy={sort_by}&pageNumber={page}"
         )
+        hdrs = {**_headers(), "Referer": referer}
         time.sleep(random.uniform(1.5, 2.5))
         try:
-            resp = session.get(url, headers=_headers(), timeout=30)
+            resp = session.get(url, headers=hdrs, timeout=30)
             resp.raise_for_status()
             if _is_blocked(resp.text):
                 break
@@ -359,7 +362,8 @@ def _collect_from_product_reviews_page(
             if not page_results:
                 break
             results.extend(page_results)
-            print(f"[scraper]   /product-reviews/ p{page}: {len(page_results)}件")
+            print(f"[scraper]   /product-reviews/ p{page}({sort_by}): {len(page_results)}件")
+            referer = url
         except Exception as e:
             print(f"[scraper] product-reviews p{page}: {e}")
             break
@@ -374,17 +378,24 @@ def collect_reviews(
 ) -> list[dict]:
     """
     レビューを収集する。
-    1. /product-reviews/ ページ（最大3ページ）を試みる
-    2. 失敗またはログイン必須なら /dp/ ページにフォールバック
+    1. /product-reviews/ sortBy=recent（最大5ページ）
+    2. 0件なら sortBy=helpful でリトライ
+    3. それでも0件なら /dp/ ページにフォールバック
     """
-    # まず /product-reviews/ を試みる（最大3ページ = 最大30件程度）
-    results = _collect_from_product_reviews_page(asin, domain, session, max_pages=3)
+    results = _collect_from_product_reviews_page(
+        asin, domain, session, max_pages=5, sort_by="recent"
+    )
+
+    if not results:
+        results = _collect_from_product_reviews_page(
+            asin, domain, session, max_pages=3, sort_by="helpful"
+        )
 
     if results:
         print(f"[scraper]   レビュー合計: {len(results)}件（/product-reviews/）")
         return results
 
-    # フォールバック: /dp/ ページ（8件固定）
+    # フォールバック: /dp/ ページ
     url = f"{domain}/dp/{asin}"
     time.sleep(random.uniform(1.5, 2.5))
     try:
@@ -524,13 +535,13 @@ def scrape_all(
         _prog(f"Amazon検索「{search_keyword}」で類似品を収集中...", 14)
         related = scrape_amazon_search(
             search_keyword, domain, session,
-            max_urls=n_similar + 5,
+            max_urls=min(n_similar * 2, 40),  # スキップ・失敗分の予備を多めに確保
             exclude_asins={asin},
         )
         _prog(f"類似品候補 {len(related)}商品 取得", 15)
 
-        targets = related[:n_similar]
-        _prog(f"類似品 {len(targets)}商品 のレビューを収集します...", 16)
+        targets = related  # n_similar 件集まるまで全候補を試す
+        _prog(f"類似品候補 {len(targets)}商品 → 最大{n_similar}件収集します...", 16)
 
         # 元商品タイトルのキーワード（3文字以上の日本語トークン）を抽出してフィルタリングに使う
         main_keywords = {
@@ -540,12 +551,14 @@ def scrape_all(
 
         similar_data = []
         for i, sim_url in enumerate(targets):
+            if len(similar_data) >= n_similar:
+                break
             sim_asin = extract_asin(sim_url)
             if not sim_asin:
                 continue
             try:
-                pct = 15 + int(i / max(n_similar, 1) * 60)
-                _prog(f"類似品 {i+1}/{len(targets)}「{sim_url[-30:]}」を収集中...", pct)
+                pct = 15 + int(len(similar_data) / max(n_similar, 1) * 60)
+                _prog(f"類似品 {len(similar_data)+1}/{n_similar}「{sim_url[-30:]}」を収集中...", pct)
 
                 sim_page = scrape_product_page(sim_url, session)
                 sim_title = sim_page.get("title", "")
