@@ -505,7 +505,7 @@ def _show_input():
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
 
         st.markdown("<p style='font-size:13px;color:#888;margin:4px 0 6px'>🔍 類似品レビュー数</p>", unsafe_allow_html=True)
-        _sim_opts = [(0, "0件", "⚡ 約30秒"), (5, "5件", "約1分"), (10, "10件", "約1.5分"), (20, "20件", "約2〜3分")]
+        _sim_opts = [(0, "0件", "対象商品のみ ⚡約30秒"), (5, "5件", "+40件 約1分"), (10, "10件", "+80件 約1.5分"), (20, "20件", "+160件 約2〜3分")]
         _sc = st.columns(4)
         for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
             _sel = st.session_state.get("sim_count", 5) == _val
