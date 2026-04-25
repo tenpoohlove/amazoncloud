@@ -24,47 +24,42 @@ auth.init_db()
 
 # ─────────────────────────────────────────────
 # Cookie manager
-# 読み取り: st.context.cookies（リロード即反映・安定）
-# 書き込み/削除: extra_streamlit_components（設定・削除用）
+# st.context.cookies は WebSocket 接続確立時のHTTPヘッダーを読む。
+# st.rerun() は既存 WebSocket を使うため新Cookie は届かない。
+# → JS で cookie を書いてフルページリロードするのが唯一の確実な方法。
 # ─────────────────────────────────────────────
-try:
-    import extra_streamlit_components as stx
-
-    def _get_cookie_manager():
-        if "cookie_manager" not in st.session_state:
-            st.session_state["cookie_manager"] = stx.CookieManager(key="session_cookie")
-        return st.session_state["cookie_manager"]
-
-    _COOKIE_AVAILABLE = True
-except Exception:
-    _COOKIE_AVAILABLE = False
-
-    def _get_cookie_manager():
-        class _Dummy:
-            def set(self, *a, **kw): pass
-            def delete(self, *a, **kw): pass
-        return _Dummy()
+import streamlit.components.v1 as _stc
 
 
-def _cookie_get(key: str):
+def _cookie_get(key: str) -> str | None:
     try:
-        return _get_cookie_manager().get(key)
+        return st.context.cookies.get(key)
     except Exception:
         return None
 
 
-def _cookie_set(key: str, value: str, cookie_key: str):
-    try:
-        _get_cookie_manager().set(key, value, key=cookie_key)
-    except Exception:
-        pass
+def _cookie_set(key: str, value: str, cookie_key: str = ""):
+    """JS でブラウザに cookie をセットしてページをフルリロード。"""
+    max_age = 30 * 24 * 3600
+    safe_val = value.replace("\\", "\\\\").replace("'", "\\'")
+    _stc.html(
+        f"<script>"
+        f"document.cookie='{key}={safe_val};max-age={max_age};path=/;SameSite=Strict';"
+        f"window.top.location.reload();"
+        f"</script>",
+        height=1,
+    )
 
 
-def _cookie_delete(key: str, cookie_key: str):
-    try:
-        _get_cookie_manager().delete(key, key=cookie_key)
-    except Exception:
-        pass
+def _cookie_delete(key: str, cookie_key: str = ""):
+    """JS でブラウザの cookie を削除してページをフルリロード。"""
+    _stc.html(
+        f"<script>"
+        f"document.cookie='{key}=;max-age=0;path=/;SameSite=Strict';"
+        f"window.top.location.reload();"
+        f"</script>",
+        height=1,
+    )
 
 
 # ─────────────────────────────────────────────
@@ -77,10 +72,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CookieManager を毎レンダリング必ず描画
-# （描画されないと pending の set/delete JavaScript が発火しない）
-if _COOKIE_AVAILABLE:
-    _get_cookie_manager()
 
 # ─────────────────────────────────────────────
 # セッション初期化
@@ -240,13 +231,9 @@ def show_auth():
                     if err:
                         st.error(err)
                     else:
-                        st.session_state["user"] = user
-                        saved_key = auth.get_user_api_key(user["id"])
-                        if saved_key:
-                            st.session_state["api_key"] = saved_key
                         token = auth.create_session(user["id"], days=30)
-                        _cookie_set("st_session", token, "set_login")
-                        st.rerun()
+                        _cookie_set("st_session", token)
+                        st.stop()
 
             st.markdown("---")
             st.markdown("##### パスワードをお忘れですか？")
@@ -593,7 +580,7 @@ def _show_analysis():
     # One Belief カード
     st.markdown(
         f"<div style='padding:16px 20px;border-radius:10px;"
-        f"border:2px solid #2c7be5;margin:12px 0 20px 0;"
+        f"border:2px solid #2c7be5;background:#e8f4ff;margin:12px 0 20px 0;"
         f"font-size:16px;font-weight:bold;line-height:1.7;color:#1a1a1a'>"
         f"💡 {ob.get('full_statement', '—')}"
         f"</div>",
@@ -667,7 +654,7 @@ def _show_analysis():
     if idea.get("evidence"):
         st.markdown(
             f"<div style='padding:10px 14px;border-radius:6px;"
-            f"border-left:4px solid #6c757d;font-size:13px;opacity:0.85;"
+            f"border-left:4px solid #6c757d;background:#f8f9fa;font-size:13px;"
             f"margin-top:12px;color:#1a1a1a'>"
             f"📝 <b>根拠レビュー:</b> {idea['evidence']}</div>",
             unsafe_allow_html=True,
@@ -965,7 +952,7 @@ def page_history():
                 st.markdown(
                     f"<div style='padding:10px 14px;border-radius:8px;"
                     f"border-left:4px solid #2c7be5;margin-bottom:8px;"
-                    f"background:{bg}'>"
+                    f"background:{bg};color:#1a1a1a'>"
                     f"<b>{icon} No.{idea.get('id',0):02d}　{idea.get('title','')}</b>　"
                     f"<span style='font-size:12px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
                     f"<span style='font-size:13px'>{ob.get('full_statement','')}</span>"
@@ -1233,10 +1220,8 @@ with col_right:
             token = _cookie_get("st_session")
             if token:
                 auth.delete_session(token)
-            _cookie_delete("st_session", "del_logout")
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
-            st.rerun()
+            _cookie_delete("st_session")
+            st.stop()
 
 st.divider()
 
