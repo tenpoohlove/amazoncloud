@@ -1058,16 +1058,25 @@ def _show_deepdive():
                     unsafe_allow_html=True,
                 )
 
-        if checklist and needs_work:
+        if checklist:
             st.divider()
-            st.markdown(
-                f"<div style='font-size:15px;color:#1a1a1a;margin-bottom:8px'>"
-                f"要強化が <b>{len(needs_work)} 件</b> あります。"
-                f"フィードバックをもとに改善版を自動生成できます。</div>",
-                unsafe_allow_html=True,
-            )
+            if needs_work:
+                st.markdown(
+                    f"<div style='font-size:15px;color:#1a1a1a;margin-bottom:8px'>"
+                    f"要強化が <b>{len(needs_work)} 件</b> あります。"
+                    f"フィードバックをもとに改善版を自動生成できます。</div>",
+                    unsafe_allow_html=True,
+                )
+                regen_label = "🔄 弱点を改善して再生成する"
+            else:
+                st.markdown(
+                    "<div style='font-size:15px;color:#1a1a1a;margin-bottom:8px'>"
+                    "全項目クリアしています。内容が気に入らない場合は別パターンを生成できます。</div>",
+                    unsafe_allow_html=True,
+                )
+                regen_label = "🔄 別パターンを生成する"
             if st.button(
-                "🔄 弱点を改善して再生成する",
+                regen_label,
                 key="regen_with_checklist",
                 use_container_width=True,
                 type="primary",
