@@ -462,7 +462,7 @@ def _show_input():
             st.rerun()
 
     # URL入力（フォーム外・一番上）
-    st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:8px 0 4px'>🔗 Amazon 商品URL</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:8px 0 4px'>🔗 Amazon 商品URL</h4>", unsafe_allow_html=True)
     url = st.text_input(
         "Amazon商品URL",
         value=st.session_state.get("url", ""),
@@ -471,7 +471,7 @@ def _show_input():
         label_visibility="collapsed",
     )
 
-    st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:16px 0 4px'>📊 難易度フィルター</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:16px 0 4px'>📊 難易度フィルター</h4>", unsafe_allow_html=True)
     _dcols = st.columns(6)
     _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
     _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
@@ -489,7 +489,7 @@ def _show_input():
         col_sim, col_mode = st.columns([2, 2])
 
         with col_sim:
-            st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:0 0 4px'>🔍 類似品レビュー数</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:0 0 4px'>🔍 類似品レビュー数</h4>", unsafe_allow_html=True)
             _sim_options = {
                 0:  "0件（対象商品のみ）⚡ 約30秒",
                 5:  "5件（+40件）約1分",
@@ -511,7 +511,7 @@ def _show_input():
             else:
                 st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
-        st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:16px 0 4px'>📝 レビュー収集モード</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:16px 0 4px'>📝 レビュー収集モード</h4>", unsafe_allow_html=True)
         review_mode = st.radio(
             "レビュー収集モード",
             options=["amazon", "gemini"],
@@ -1476,25 +1476,26 @@ st.markdown("""
 [data-testid="stSidebar"] { display: none; }
 [data-testid="stSidebarCollapsedControl"] { display: none; }
 /* ベースフォントサイズ */
-.stMarkdown p, .stMarkdown li, .stMarkdown span { font-size: 15px; }
-/* 見出しは潰さず自然なサイズを維持 */
-.stMarkdown h1 { font-size: 2rem !important; }
-.stMarkdown h2 { font-size: 1.6rem !important; }
-.stMarkdown h3 { font-size: 1.3rem !important; }
-.stMarkdown h4 { font-size: 1.2rem !important; font-weight: 700 !important; }
-.stMarkdown h5 { font-size: 1.05rem !important; font-weight: 600 !important; }
+.stMarkdown p, .stMarkdown li, .stMarkdown span { font-size: 17px; }
+/* 見出し */
+.stMarkdown h1 { font-size: 2.2rem !important; }
+.stMarkdown h2 { font-size: 1.8rem !important; }
+.stMarkdown h3 { font-size: 1.5rem !important; }
+.stMarkdown h4 { font-size: 1.25rem !important; font-weight: 700 !important; }
+.stMarkdown h5 { font-size: 1.1rem !important; font-weight: 600 !important; }
 /* ウィジェットラベル */
-.stTextInput label { font-size: 16px !important; font-weight: 600 !important; }
-.stSelectbox label { font-size: 16px !important; font-weight: 600 !important; }
-.stCheckbox label { font-size: 14px !important; }
-.stRadio label, .stRadio span { font-size: 15px !important; }
-.stRadio > label:first-child { font-size: 16px !important; font-weight: 600 !important; }
-.stSelectbox [data-baseweb="select"] { font-size: 15px; }
-.stAlert p { font-size: 15px; }
-.stCaption p { font-size: 13px !important; }
-.streamlit-expanderHeader p { font-size: 15px !important; }
-[data-baseweb="tab"] button { font-size: 15px !important; }
-.stInfo p, .stWarning p, .stSuccess p, .stError p { font-size: 15px; }
+.stTextInput label { font-size: 17px !important; font-weight: 600 !important; }
+.stSelectbox label { font-size: 17px !important; font-weight: 600 !important; }
+.stCheckbox label { font-size: 15px !important; }
+.stRadio label, .stRadio span { font-size: 17px !important; }
+.stRadio > label:first-child { font-size: 17px !important; font-weight: 600 !important; }
+.stSelectbox [data-baseweb="select"] { font-size: 16px; }
+.stTextInput input { font-size: 16px !important; }
+.stAlert p { font-size: 17px; }
+.stCaption p { font-size: 14px !important; }
+.streamlit-expanderHeader p { font-size: 17px !important; }
+[data-baseweb="tab"] button { font-size: 16px !important; }
+.stInfo p, .stWarning p, .stSuccess p, .stError p { font-size: 17px; }
 /* ページリンク */
 [data-testid="stPageLink"] p { font-size: 15px !important; }
 /* 入力フォームの枠を消して難易度フィルターと一体化 */
