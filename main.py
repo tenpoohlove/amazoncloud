@@ -14,6 +14,8 @@ import auth
 from scraper import scrape_all, extract_asin
 from analyzer import (
     analyze_and_generate_ideas,
+    generate_ideas_fast,
+    generate_idea_analysis,
     generate_deep_dive_content,
     generate_pdf_bytes,
     DIFFICULTY,
@@ -328,6 +330,8 @@ def page_home():
         _show_input()
     elif stage == "ideas":
         _show_ideas()
+    elif stage == "analyzing_idea":
+        _show_analyzing_idea()
     elif stage == "analysis":
         _show_analysis()
     elif stage == "deepdive":
@@ -448,9 +452,9 @@ def _show_input():
             api_key=api_key,
             use_gemini_reviews=(review_mode == "gemini"),
         )
-        update_progress("AIがアイデアを生成中...", 85)
+        update_progress("AIがアイデア10個を生成中...", 85)
         diff_filter = selected_diffs if selected_diffs else None
-        ideas = analyze_and_generate_ideas(product_data, diff_filter, api_key)
+        ideas = generate_ideas_fast(product_data, diff_filter, api_key)
         progress_bar.progress(100)
         status_text.empty()
     except RuntimeError as e:
@@ -546,8 +550,56 @@ def _show_ideas():
     if deepdiving_id is not None:
         st.session_state["selected_idea_id"] = deepdiving_id
         st.session_state["deepdiving_id"] = None
+        st.session_state["stage"] = "analyzing_idea"
+        st.rerun()
+
+
+def _show_analyzing_idea():
+    """選択したアイデアのQ1-Q10詳細分析を生成する中間ページ"""
+    ideas = st.session_state["ideas"]
+    selected_id = st.session_state["selected_idea_id"]
+    product_data = st.session_state["product_data"]
+    api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
+
+    idea = next((i for i in ideas if i["id"] == selected_id), None)
+    if idea is None:
+        st.session_state["stage"] = "ideas"
+        st.rerun()
+        return
+
+    if idea.get("_analyzed"):
         st.session_state["stage"] = "analysis"
         st.rerun()
+        return
+
+    st.markdown(
+        f"<div style='border:2px solid #2c7be5;padding:24px;"
+        f"border-radius:12px;text-align:center;margin-bottom:16px'>"
+        f"<div style='font-size:32px;margin-bottom:8px'>🔍</div>"
+        f"<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#1a1a1a'>"
+        f"「{idea['title']}」を詳細分析中...</div>"
+        f"<div style='font-size:15px;color:#1a1a1a'>Q1〜Q10の詳細分析を生成しています（10〜30秒）</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    progress = st.progress(0, text="詳細分析を生成中...")
+    try:
+        progress.progress(20, text="AIで詳細分析を生成中...")
+        full_idea = generate_idea_analysis(idea, product_data, api_key)
+        progress.progress(90, text="完了！")
+        for j, x in enumerate(ideas):
+            if x["id"] == selected_id:
+                ideas[j] = full_idea
+                break
+        st.session_state["ideas"] = ideas
+        st.session_state["stage"] = "analysis"
+        progress.progress(100, text="完了！")
+        st.rerun()
+    except Exception as e:
+        st.error(f"分析生成エラー: {e}")
+        if st.button("← アイデア一覧に戻る"):
+            st.session_state["stage"] = "ideas"
+            st.rerun()
 
 
 def _show_analysis():
@@ -811,26 +863,59 @@ def _show_deepdive():
             )
 
     with tab_check:
-        st.subheader("✅ トップ3チェックリスト（10項目）")
         checklist = deep_dive.get("checklist", [])
         if checklist:
-            for item in checklist:
-                status = item.get("status", "")
-                badge_color = "#28a745" if status == "OK" else "#f39c12"
-                badge_text  = "✅ OK" if status == "OK" else "⚠️ 要強化"
+            ok_count = sum(1 for item in checklist if item.get("status") == "OK")
+            total = len(checklist)
+            score_pct = ok_count / total
+            score_color = "#28a745" if score_pct >= 0.8 else "#f39c12" if score_pct >= 0.5 else "#dc3545"
+            score_label = "🟢 提出準備OK" if score_pct >= 0.8 else "🟡 強化してから出そう" if score_pct >= 0.5 else "🔴 要強化が多数あります"
+            st.markdown(
+                f"<div style='padding:16px 20px;border-radius:12px;background:#f8f9fa;"
+                f"margin-bottom:24px;text-align:center;color:#1a1a1a'>"
+                f"<div style='font-size:13px;opacity:0.65;margin-bottom:4px'>Makuake提出準備スコア</div>"
+                f"<div style='font-size:48px;font-weight:bold;color:{score_color};line-height:1.1'>"
+                f"{ok_count}<span style='font-size:24px'> / {total}</span></div>"
+                f"<div style='font-size:16px;font-weight:bold;color:{score_color};margin-top:4px'>"
+                f"{score_label}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            needs_work = [item for item in checklist if item.get("status") != "OK"]
+            ok_items   = [item for item in checklist if item.get("status") == "OK"]
+
+            if needs_work:
                 st.markdown(
-                    f"<div style='padding:12px 14px;border-radius:8px;"
-                    f"border-left:4px solid {badge_color};"
-                    f"background:#f8f9fa;margin-bottom:8px;color:#1a1a1a'>"
-                    f"<div style='display:flex;justify-content:space-between;"
-                    f"align-items:center;margin-bottom:4px'>"
-                    f"<span style='font-weight:bold;font-size:15px'>{item.get('item','')}</span>"
-                    f"<span style='font-size:13px;font-weight:bold;color:{badge_color}'>{badge_text}</span>"
-                    f"</div>"
-                    f"<div style='font-size:14px;opacity:0.8'>{item.get('how','')}</div>"
-                    f"</div>",
+                    f"<div style='font-size:17px;font-weight:bold;margin-bottom:10px;color:#c0392b'>"
+                    f"⚠️ このまま出すなら要注意（{len(needs_work)}件）</div>",
                     unsafe_allow_html=True,
                 )
+                for item in needs_work:
+                    st.markdown(
+                        f"<div style='padding:12px 16px;border-radius:8px;"
+                        f"border-left:4px solid #f39c12;background:#fff8e1;"
+                        f"margin-bottom:10px;color:#1a1a1a'>"
+                        f"<div style='font-weight:bold;font-size:15px;margin-bottom:4px'>"
+                        f"⚠️ {item.get('item','')}</div>"
+                        f"<div style='font-size:14px;line-height:1.6'>→ {item.get('how','')}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            if ok_items:
+                with st.expander(f"✅ 準備できている項目（{len(ok_items)}件）", expanded=False):
+                    for item in ok_items:
+                        st.markdown(
+                            f"<div style='padding:10px 14px;border-radius:8px;"
+                            f"border-left:4px solid #28a745;background:#f0fff4;"
+                            f"margin-bottom:8px;color:#1a1a1a'>"
+                            f"<div style='font-weight:bold;font-size:14px;margin-bottom:2px'>"
+                            f"✅ {item.get('item','')}</div>"
+                            f"<div style='font-size:13px;opacity:0.8'>{item.get('how','')}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
         else:
             st.warning("チェックリストを生成できませんでした。")
 

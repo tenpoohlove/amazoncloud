@@ -331,6 +331,122 @@ STEP 6 — Constitutional Review（自己審査）
 
 
 # ─────────────────────────────────────────────
+# 高速プロンプト（タイトル＋概要のみ）
+# ─────────────────────────────────────────────
+def _build_fast_prompt(product_data: dict, difficulty_filter) -> str:
+    title = product_data.get("title", "不明")
+    bullets = "\n".join(f"  ・{b}" for b in product_data.get("bullets", [])[:8])
+    description = product_data.get("description", "")[:200]
+    reviews_text = _format_reviews(product_data.get("reviews", []), max_count=80)
+    similar_items = product_data.get("similar_data", [])
+    similar_text = ""
+    for i, sim in enumerate(similar_items[:3], 1):
+        sim_fmt = _format_reviews(sim["reviews"], max_count=15)
+        similar_text += f"\n  ▶ 類似品{i}「{sim['title'][:30]}」\n{sim_fmt}\n"
+    if not similar_text:
+        similar_text = "（なし）"
+
+    if isinstance(difficulty_filter, int):
+        difficulty_filter = [difficulty_filter] if difficulty_filter > 0 else []
+
+    if difficulty_filter:
+        if len(difficulty_filter) == 1:
+            d = DIFFICULTY[difficulty_filter[0]]
+            diff_instruction = f"【難易度指定】すべて{d['label']} {d['name']}（{d['desc']}）"
+            count_note = f"すべて {d['label']} で統一（10個）"
+        else:
+            labels = " と ".join(DIFFICULTY[d]["label"] for d in difficulty_filter)
+            diff_instruction = f"【難易度指定】{labels} のみ"
+            per = max(1, 10 // len(difficulty_filter))
+            count_note = " + ".join(f"{DIFFICULTY[d]['label']}×{per}" for d in difficulty_filter)
+    else:
+        diff_instruction = "【難易度】★1〜★5 を各2件ずつ"
+        count_note = "★1×2・★2×2・★3×2・★4×2・★5×2（合計10個）"
+
+    return f"""あなたはクラウドファンディング向け新商品開発の専門家です。
+すべての出力は日本語で書いてください。
+
+以下の商品データのレビューを分析し、解決する新商品アイデアを10個提案してください。
+アイデアは必ず「{title}」と同じカテゴリ・用途に限定してください。
+
+商品名: {title}
+特徴: {bullets or "（なし）"}
+説明: {description or "（なし）"}
+
+【対象商品のレビュー（不満優先）】
+{reviews_text}
+
+【類似品のレビュー】
+{similar_text}
+
+{diff_instruction}
+{count_note}
+
+以下のJSON配列のみを返してください（コードブロック不要）:
+[
+  {{
+    "id": 1,
+    "difficulty": 1,
+    "difficulty_label": "★1",
+    "difficulty_name": "超低コスト",
+    "title": "商品タイトル（25文字以内）",
+    "estimated_cost": "製造コスト目安（例: 3,000〜8,000円/個）",
+    "one_belief": {{
+      "full_statement": "このアイデアが解決する問題と価値を一文で（80文字以内）"
+    }},
+    "evidence": "根拠となったレビュー抜粋（40文字以内）"
+  }}
+]
+必ず10個・すべて日本語・JSON配列のみで返してください。"""
+
+
+def _parse_ideas_json(raw: str) -> list:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        clean = re.sub(r"```(?:json)?", "", raw).strip()
+        m = re.search(r"\[.*\]", clean, re.DOTALL)
+        if not m:
+            raise ValueError(f"AIの返答をJSONとして解析できませんでした:\n{raw[:500]}")
+        return json.loads(m.group())
+
+
+def _fill_missing_difficulties(ideas: list, product_data: dict, client, build_prompt_fn) -> list:
+    """難易度分布の補完（共通処理）"""
+    present = {idea.get("difficulty") for idea in ideas}
+    missing = [d for d in range(1, 6) if d not in present]
+    if not missing:
+        return ideas
+
+    fill_msg = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=build_prompt_fn(product_data, missing),
+    )
+    try:
+        fill_ideas = _parse_ideas_json(fill_msg.text.strip())
+    except Exception:
+        return ideas
+
+    if not isinstance(fill_ideas, list):
+        return ideas
+
+    for fi in fill_ideas:
+        fd = fi.get("difficulty")
+        if fd in missing:
+            for j in range(len(ideas) - 1, -1, -1):
+                if ideas[j].get("difficulty") == fd:
+                    ideas.pop(j)
+                    break
+            ideas.append(fi)
+            missing = [d for d in missing if d != fd]
+            if not missing:
+                break
+
+    ideas.sort(key=lambda x: x.get("difficulty", 99))
+    return ideas[:10]
+
+
+# ─────────────────────────────────────────────
 # メイン分析関数
 # ─────────────────────────────────────────────
 def analyze_and_generate_ideas(
@@ -425,6 +541,149 @@ def analyze_and_generate_ideas(
         idea["id"] = i
 
     return ideas
+
+
+# ─────────────────────────────────────────────
+# 高速生成（タイトル＋概要のみ）
+# ─────────────────────────────────────────────
+def generate_ideas_fast(
+    product_data: dict,
+    difficulty_filter=None,
+    api_key: str | None = None,
+) -> list[dict]:
+    """
+    アイデア10個をタイトル＋一言概要のみで高速生成する。
+    詳細分析（Q1-Q10）は generate_idea_analysis() で後から生成する。
+    """
+    _api_key = api_key or os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=_api_key)
+
+    ideas = _parse_ideas_json(
+        client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=_build_fast_prompt(product_data, difficulty_filter),
+        ).text.strip()
+    )
+
+    if not isinstance(ideas, list):
+        raise ValueError("AIがリスト形式で返答しませんでした")
+
+    ideas.sort(key=lambda x: x.get("difficulty", 99))
+    ideas = ideas[:10]
+
+    if not difficulty_filter:
+        ideas = _fill_missing_difficulties(ideas, product_data, client, _build_fast_prompt)
+
+    for i, idea in enumerate(ideas, 1):
+        idea["id"] = i
+        idea["_analyzed"] = False
+
+    return ideas
+
+
+# ─────────────────────────────────────────────
+# オンデマンド詳細分析（1件分）
+# ─────────────────────────────────────────────
+def generate_idea_analysis(
+    idea: dict,
+    product_data: dict,
+    api_key: str | None = None,
+) -> dict:
+    """
+    高速生成されたアイデア1件に対してQ1〜Q10の詳細分析を追加して返す。
+    """
+    _api_key = api_key or os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=_api_key)
+
+    title = product_data.get("title", "不明")
+    reviews_text = _format_reviews(product_data.get("reviews", []), max_count=80)
+    similar_items = product_data.get("similar_data", [])
+    similar_text = ""
+    for i, sim in enumerate(similar_items[:2], 1):
+        sim_fmt = _format_reviews(sim["reviews"], max_count=15)
+        similar_text += f"\n  ▶ 類似品{i}「{sim['title'][:30]}」\n{sim_fmt}\n"
+    if not similar_text:
+        similar_text = "（なし）"
+
+    diff = idea.get("difficulty", 1)
+    diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
+
+    prompt = f"""あなたはクラウドファンディング向け新商品開発の専門家です。
+すべての出力は日本語で書いてください。
+
+以下のアイデア1件について「16-Word Sales Letter™」フレームワークで詳細分析してください。
+
+【分析対象アイデア】
+タイトル: {idea.get('title', '')}
+難易度: {diff_info['label']} {diff_info['name']}
+製造コスト: {idea.get('estimated_cost', '')}
+アイデア概要: {idea.get('one_belief', {}).get('full_statement', '')}
+根拠レビュー: {idea.get('evidence', '')}
+
+【元商品情報】
+商品名: {title}
+
+【対象商品のレビュー（不満優先）】
+{reviews_text}
+
+【類似品のレビュー】
+{similar_text}
+
+以下のJSONオブジェクトのみを返してください（コードブロック不要）:
+{{
+  "id": {idea.get('id', 1)},
+  "difficulty": {diff},
+  "difficulty_label": "{diff_info['label']}",
+  "difficulty_name": "{diff_info['name']}",
+  "title": "{idea.get('title', '')}",
+  "estimated_cost": "{idea.get('estimated_cost', '')}",
+  "_analyzed": true,
+
+  "one_belief": {{
+    "new_opportunity": "新しい機会（30文字以内）",
+    "desire": "顧客の欲求（30文字以内）",
+    "new_mechanism": "新メカニズム（30文字以内）",
+    "full_statement": "コアメッセージ一文（80文字以内）"
+  }},
+
+  "q1_novelty":      "なぜ他と違うのか・USP（60文字以内）",
+  "q2_benefit":      "顧客への大きな約束（60文字以内）",
+  "q3_proof_abt":    "And+But+Thereforeの証拠（100文字以内）",
+  "q4_real_problem": "今まで解決できなかった真の問題（60文字以内）",
+  "q5_enemy":        "共通の敵（40文字以内）",
+  "q6_urgency":      "CF緊急性メッセージ（60文字以内）",
+  "q7_trust":        "信頼構築のヒント（60文字以内）",
+  "q8_mechanism":    "メカニズム説明（80文字以内）",
+  "q9_offer":        "オファー設計案（80文字以内）",
+  "q10_pushpull":    "クロージング文（80文字以内）",
+
+  "novelty_advice": [
+    "新規性アドバイス1（具体的に）",
+    "新規性アドバイス2（具体的に）",
+    "新規性アドバイス3（具体的に）"
+  ],
+
+  "evidence": "根拠レビュー抜粋（40文字以内）"
+}}
+すべて日本語で返してください。"""
+
+    raw = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+    ).text.strip()
+
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        clean = re.sub(r"```(?:json)?", "", raw).strip()
+        m = re.search(r"\{.*\}", clean, re.DOTALL)
+        if not m:
+            raise ValueError(f"詳細分析のJSON解析に失敗しました:\n{raw[:500]}")
+        result = json.loads(m.group())
+
+    result["_analyzed"] = True
+    result.setdefault("id", idea.get("id", 1))
+    return result
 
 
 def get_difficulty_options() -> dict:
@@ -653,7 +912,7 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
   }},
 
   "checklist": [
-    {{"item": "ファーストビューで一文の強い価値提案", "status": "OK", "how": "どう満たしているか（50字以内）"}},
+    {{"item": "ファーストビューで一文の強い価値提案", "status": "OK", "how": "OKならその根拠、要強化なら「Makuakeに出す前に〇〇を追加すること」という形で具体的アドバイス（50字以内）"}},
     {{"item": "ターゲットの痛み・課題の明確化", "status": "OK または 要強化", "how": "..."}},
     {{"item": "差別化を動画/GIF/比較表で視覚化", "status": "...", "how": "..."}},
     {{"item": "スペック・認証・受賞・実績など客観的証拠", "status": "...", "how": "..."}},
