@@ -393,6 +393,49 @@ def delete_history_item(history_id: int, user_id: int):
 
 
 # ─────────────────────────────────────────────
+# ドラフト状態（ページリフレッシュ復元用）
+# ─────────────────────────────────────────────
+def _ensure_draft_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS draft_states (
+            user_id INTEGER PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+
+def save_draft_state(user_id: int, state: dict) -> None:
+    conn = _get_conn()
+    _ensure_draft_table(conn)
+    conn.execute(
+        """INSERT INTO draft_states (user_id, state_json, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(user_id) DO UPDATE SET
+               state_json = excluded.state_json,
+               updated_at = excluded.updated_at""",
+        (user_id, json.dumps(state, ensure_ascii=False)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_draft_state(user_id: int) -> dict | None:
+    conn = _get_conn()
+    _ensure_draft_table(conn)
+    row = conn.execute(
+        "SELECT state_json FROM draft_states WHERE user_id=?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row["state_json"])
+    except Exception:
+        return None
+
+
+# ─────────────────────────────────────────────
 # メール送信
 # ─────────────────────────────────────────────
 def _get_smtp_config() -> dict:

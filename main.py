@@ -120,6 +120,68 @@ _DIFF_COLOR = {
 }
 
 
+# ─────────────────────────────────────────────
+# ドラフト状態の保存・復元
+# ─────────────────────────────────────────────
+def _save_draft():
+    """現在の作業状態をDBに保存する（リフレッシュ時の復元用）"""
+    user = st.session_state.get("user")
+    if not user:
+        return
+    product_data = st.session_state.get("product_data")
+    if not product_data:
+        return
+    # レビュー生データは除いてコンパクトに保存
+    product_data_light = {
+        k: v for k, v in product_data.items()
+        if k not in ("reviews", "similar_data")
+    }
+    product_data_light["_review_count"] = len(product_data.get("reviews", []))
+    product_data_light["_similar_count"] = len(product_data.get("similar_data", []))
+    state = {
+        "stage": st.session_state.get("stage", "ideas"),
+        "url": st.session_state.get("url", ""),
+        "ideas": st.session_state.get("ideas", []),
+        "selected_idea_id": st.session_state.get("selected_idea_id"),
+        "deep_dive_cache": st.session_state.get("deep_dive_cache", {}),
+        "product_data": product_data_light,
+    }
+    try:
+        auth.save_draft_state(user["id"], state)
+    except Exception:
+        pass
+
+
+def _restore_draft(user: dict):
+    """DBから保存済み作業状態を復元する（初回セッション時のみ適用）"""
+    if st.session_state.get("product_data") is not None:
+        return  # 既にデータがある場合は上書きしない
+    try:
+        draft = auth.get_draft_state(user["id"])
+    except Exception:
+        return
+    if not draft or not draft.get("ideas"):
+        return
+
+    st.session_state["product_data"] = draft.get("product_data")
+    st.session_state["ideas"] = draft.get("ideas", [])
+    st.session_state["url"] = draft.get("url", "")
+    st.session_state["selected_idea_id"] = draft.get("selected_idea_id")
+    st.session_state["deep_dive_cache"] = draft.get("deep_dive_cache", {})
+
+    stage = draft.get("stage", "ideas")
+    # 分析中ステージは完了済みかチェックしてから復元
+    if stage == "analyzing_idea":
+        selected = draft.get("selected_idea_id")
+        ideas = draft.get("ideas", [])
+        idea = next((i for i in ideas if i["id"] == selected), None)
+        stage = "analysis" if (idea and idea.get("_analyzed")) else "ideas"
+    # データが存在しないステージへの復元は ideas に落とす
+    if stage in ("analysis", "deepdive") and not draft.get("selected_idea_id"):
+        stage = "ideas"
+    st.session_state["stage"] = stage
+
+
 def _idea_card(idea: dict, col):
     diff = idea.get("difficulty", 1)
     icon = _DIFF_ICON.get(diff, "⚪")
@@ -473,6 +535,7 @@ def _show_input():
     st.session_state["url"]          = url
     st.session_state["stage"]        = "ideas"
     st.session_state["deep_dive_cache"] = {}
+    _save_draft()
 
     # 履歴に保存
     user = st.session_state.get("user")
@@ -593,6 +656,7 @@ def _show_analyzing_idea():
                 break
         st.session_state["ideas"] = ideas
         st.session_state["stage"] = "analysis"
+        _save_draft()
         progress.progress(100, text="完了！")
         st.rerun()
     except Exception as e:
@@ -777,6 +841,7 @@ def _show_deepdive():
             progress.progress(90, text="仕上げ中...")
             cache[selected_id] = deep_dive
             st.session_state["deep_dive_cache"] = cache
+            _save_draft()
             progress.progress(100, text="完了！")
             st.rerun()
         except Exception as e:
@@ -1254,6 +1319,7 @@ if user is None:
             saved_key = auth.get_user_api_key(saved_user["id"])
             if saved_key:
                 st.session_state["api_key"] = saved_key
+            _restore_draft(saved_user)
             user = saved_user
 
 if user is None:
