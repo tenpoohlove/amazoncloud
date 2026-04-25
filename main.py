@@ -98,6 +98,8 @@ for _k, _v in [
     ("diff_cb_3", False),
     ("diff_cb_4", False),
     ("diff_cb_5", False),
+    ("sim_count", 5),
+    ("review_mode", "amazon"),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -491,31 +493,27 @@ def _show_input():
     with st.container(border=True):
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
 
-        _sim_labels = {
-            0:  "0件 ⚡約30秒",
-            5:  "5件 約1分",
-            10: "10件 約1.5分",
-            20: "20件 約2〜3分",
-        }
-        sim_count = st.pills(
-            "🔍 類似品レビュー数",
-            options=list(_sim_labels.keys()),
-            format_func=lambda x: _sim_labels[x],
-            default=5,
-            key="sim_pills",
-        )
-        if sim_count is None:
-            sim_count = 5
+        st.markdown("<p style='font-size:13px;color:#888;margin:4px 0 6px'>🔍 類似品レビュー数</p>", unsafe_allow_html=True)
+        _sim_opts = [(0, "0件", "⚡ 約30秒"), (5, "5件", "約1分"), (10, "10件", "約1.5分"), (20, "20件", "約2〜3分")]
+        _sc = st.columns(4)
+        for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
+            _sel = st.session_state.get("sim_count", 5) == _val
+            if _col.button(f"**{_main}**  \n{_sub}", key=f"sim_card_{_val}",
+                           type="primary" if _sel else "secondary", use_container_width=True):
+                st.session_state["sim_count"] = _val
+                st.rerun()
+        sim_count = st.session_state.get("sim_count", 5)
 
-        review_mode = st.pills(
-            "📝 レビュー収集モード",
-            options=["amazon", "gemini"],
-            format_func=lambda x: "🛒 Amazonレビューのみ（実レビュー・高速）" if x == "amazon" else "🔍 Gemini Web検索レビュー込み（大量収集・低速）",
-            default="amazon",
-            key="mode_pills",
-        )
-        if review_mode is None:
-            review_mode = "amazon"
+        st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
+        _mode_opts = [("amazon", "🛒 Amazonレビューのみ", "実レビュー・高速"), ("gemini", "🔍 Gemini Web検索込み", "大量収集・低速")]
+        _mc = st.columns(2)
+        for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
+            _sel = st.session_state.get("review_mode", "amazon") == _val
+            if _col.button(f"**{_main}**  \n{_sub}", key=f"mode_card_{_val}",
+                           type="primary" if _sel else "secondary", use_container_width=True):
+                st.session_state["review_mode"] = _val
+                st.rerun()
+        review_mode = st.session_state.get("review_mode", "amazon")
         if review_mode == "gemini":
             st.caption("※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
 
@@ -1495,12 +1493,11 @@ st.markdown("""
   padding: 0 !important;
   box-shadow: none !important;
 }
-/* ラジオボタンを両端まで均等に広げる（難易度フィルターに合わせる） */
-[data-testid="stRadio"] > div[role="radiogroup"] {
-  display: flex !important;
-  justify-content: space-between !important;
-  width: 100% !important;
-  gap: 0 !important;
+/* カード選択ボタン */
+[data-testid="stButton"] button {
+  min-height: 56px !important;
+  white-space: pre-wrap !important;
+  line-height: 1.5 !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
