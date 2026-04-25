@@ -168,7 +168,9 @@ def _restore_draft(user: dict):
     st.session_state["ideas"] = draft.get("ideas", [])
     st.session_state["url"] = draft.get("url", "")
     st.session_state["selected_idea_id"] = draft.get("selected_idea_id")
-    st.session_state["deep_dive_cache"] = draft.get("deep_dive_cache", {})
+    # JSON経由でキーが文字列化されるのを整数に戻す
+    raw_cache = draft.get("deep_dive_cache", {})
+    st.session_state["deep_dive_cache"] = {int(k): v for k, v in raw_cache.items()}
 
     stage = draft.get("stage", "ideas")
     # 分析中ステージは完了済みかチェックしてから復元
@@ -886,11 +888,11 @@ def _show_deepdive():
     if selected_id not in cache:
         st.markdown(
             "<div style='border:2px solid #2c7be5;padding:24px;"
-            "border-radius:12px;text-align:center;margin-bottom:16px'>"
+            "border-radius:12px;text-align:center;margin-bottom:16px;background:#1a3a5c'>"
             "<div style='font-size:32px;margin-bottom:8px'>🚀</div>"
-            "<div style='font-size:20px;font-weight:bold;margin-bottom:6px'>"
+            "<div style='font-size:20px;font-weight:bold;margin-bottom:6px;color:#ffffff'>"
             "Makuakeパターンでページ生成中...</div>"
-            "<div style='font-size:15px'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
+            "<div style='font-size:15px;color:#b0cfef'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
             "</div>",
             unsafe_allow_html=True,
         )
