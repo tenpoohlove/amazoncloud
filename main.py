@@ -1163,16 +1163,43 @@ def page_history():
                 diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
                 bg = _DIFF_COLOR.get(diff, "#ffffff")
                 ob = idea.get("one_belief", {})
-                st.markdown(
-                    f"<div style='padding:10px 14px;border-radius:8px;"
-                    f"border-left:4px solid #2c7be5;margin-bottom:8px;"
-                    f"background:{bg};color:#1a1a1a'>"
-                    f"<b>{icon} No.{idea.get('id',0):02d}　{idea.get('title','')}</b>　"
-                    f"<span style='font-size:14px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
-                    f"<span style='font-size:15px'>{ob.get('full_statement','')}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                col_card, col_btn = st.columns([9, 1])
+                with col_card:
+                    st.markdown(
+                        f"<div style='padding:10px 14px;border-radius:8px;"
+                        f"border-left:4px solid #2c7be5;margin-bottom:8px;"
+                        f"background:{bg};color:#1a1a1a'>"
+                        f"<b>{icon} No.{idea.get('id',0):02d}　{idea.get('title','')}</b>　"
+                        f"<span style='font-size:14px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
+                        f"<span style='font-size:15px'>{ob.get('full_statement','')}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with col_btn:
+                    if st.button("🔍 深堀", key=f"dd_hist_{item['id']}_{idea.get('id',0)}"):
+                        ideas_copy = []
+                        for i in item["ideas"]:
+                            ic = dict(i)
+                            ic["_analyzed"] = bool(ic.get("q1_novelty"))
+                            ideas_copy.append(ic)
+                        selected = next(
+                            (i for i in ideas_copy if i.get("id") == idea.get("id")),
+                            ideas_copy[0],
+                        )
+                        st.session_state["product_data"] = {
+                            "title": item["product_title"],
+                            "url": item["product_url"],
+                            "mode": "main_only",
+                            "reviews": [],
+                            "similar_data": [],
+                            "total_reviews": 0,
+                        }
+                        st.session_state["ideas"] = ideas_copy
+                        st.session_state["url"] = item["product_url"]
+                        st.session_state["selected_idea_id"] = idea.get("id")
+                        st.session_state["stage"] = "analysis" if selected.get("_analyzed") else "analyzing_idea"
+                        st.session_state["deep_dive_cache"] = {}
+                        st.switch_page(_home_page)
             st.markdown("")
             if st.button("🗑 この履歴を削除", key=f"del_hist_{item['id']}"):
                 auth.delete_history_item(item["id"], user["id"])
