@@ -1499,6 +1499,14 @@ st.markdown("""
   padding: 0 !important;
   box-shadow: none !important;
 }
+/* ラジオボタンの横間隔を広げる */
+[data-testid="stRadio"] > div[role="radiogroup"] {
+  gap: 32px !important;
+}
+/* チェックボックスの横間隔を広げる */
+[data-testid="stCheckbox"] {
+  padding-right: 8px !important;
+}
 /* ホームナビボタンをページリンク風に */
 [data-testid="stButton"][key="nav_home_btn"] button,
 div[data-testid="column"] button[kind="secondary"]:has(div p) {
