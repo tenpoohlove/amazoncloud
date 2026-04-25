@@ -492,25 +492,19 @@ def _show_input():
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
         with st.form("main_form"):
             col_sim, col_mode = st.columns([2, 2])
-            with col_sim:
-                _sim_options = {
-                    0:  "0件（対象商品のみ）⚡ 約30秒",
-                    5:  "5件（+40件）約1分",
-                    10: "10件（+80件）約1.5分",
-                    20: "20件（+160件）約2〜3分",
-                }
-                sim_count = st.selectbox(
-                    "🔍 類似品レビュー数",
-                    options=list(_sim_options.keys()),
-                    format_func=lambda x: _sim_options[x],
-                    index=1,
-                )
-            with col_mode:
-                st.markdown("")
-                if sim_count == 0:
-                    st.caption("⚡ 対象商品のみ: 高速モード")
-                else:
-                    st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
+            _sim_options = {
+                0:  "0件（対象商品のみ）⚡ 約30秒",
+                5:  "5件（+40件）約1分",
+                10: "10件（+80件）約1.5分",
+                20: "20件（+160件）約2〜3分",
+            }
+            sim_count = st.radio(
+                "🔍 類似品レビュー数",
+                options=list(_sim_options.keys()),
+                format_func=lambda x: _sim_options[x],
+                index=1,
+                horizontal=True,
+            )
 
             st.markdown("**📝 レビュー収集モード**")
             review_mode = st.radio(
