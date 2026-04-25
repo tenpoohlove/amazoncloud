@@ -88,6 +88,7 @@ for _k, _v in [
     ("user", None),
     ("api_test_result", None),
     ("deepdiving_id", None),
+    ("cf_btn_loading", False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -127,34 +128,34 @@ def _idea_card(idea: dict, col):
     with col:
         with st.container(border=True):
             st.markdown(
-                f"<div style='font-size:12px;margin-bottom:6px'>"
+                f"<div style='font-size:14px;margin-bottom:6px'>"
                 f"{icon} {diff_info['label']} {diff_info['name']}　"
                 f"｜　製造コスト: {idea.get('estimated_cost', '—')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-weight:bold;font-size:20px;margin-bottom:8px'>"
+                f"<div style='font-weight:bold;font-size:22px;margin-bottom:8px'>"
                 f"No.{idea.get('id', 0):02d}　{idea.get('title', '（タイトルなし）')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-size:13px;color:#1a1a1a;background:{bg};"
+                f"<div style='font-size:15px;color:#1a1a1a;background:{bg};"
                 f"padding:8px 12px;border-radius:6px;margin-bottom:8px'>"
                 f"💡 {ob.get('full_statement', '—')}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div style='font-size:13px;margin-bottom:4px;color:inherit'>"
+                f"<div style='font-size:15px;margin-bottom:4px;color:inherit'>"
                 f"🔑 {idea.get('q1_novelty', '—')[:60]}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             if idea.get("evidence"):
                 st.markdown(
-                    f"<div style='font-size:12px;margin-bottom:4px;color:inherit'>"
+                    f"<div style='font-size:14px;margin-bottom:4px;color:inherit'>"
                     f"📝 根拠レビュー: {idea['evidence'][:60]}"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -581,7 +582,7 @@ def _show_analysis():
     st.markdown(
         f"<div style='padding:16px 20px;border-radius:10px;"
         f"border:2px solid #2c7be5;background:#e8f4ff;margin:12px 0 20px 0;"
-        f"font-size:16px;font-weight:bold;line-height:1.7;color:#1a1a1a'>"
+        f"font-size:18px;font-weight:bold;line-height:1.7;color:#1a1a1a'>"
         f"💡 {ob.get('full_statement', '—')}"
         f"</div>",
         unsafe_allow_html=True,
@@ -597,8 +598,8 @@ def _show_analysis():
             st.markdown(
                 f"<div style='padding:12px 14px;border-radius:8px;background:{color};"
                 f"min-height:80px;color:#1a1a1a'>"
-                f"<div style='font-size:11px;opacity:0.65;margin-bottom:4px'>{label}</div>"
-                f"<div style='font-size:14px;font-weight:bold'>{ob.get(key, '—')}</div>"
+                f"<div style='font-size:13px;opacity:0.65;margin-bottom:4px'>{label}</div>"
+                f"<div style='font-size:16px;font-weight:bold'>{ob.get(key, '—')}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -638,9 +639,9 @@ def _show_analysis():
                     f"<div style='padding:12px 14px;border-radius:8px;"
                     f"border-left:4px solid {border};background:{bg};"
                     f"margin-bottom:10px;color:#1a1a1a'>"
-                    f"<div style='font-size:11px;opacity:0.65;margin-bottom:3px'>"
+                    f"<div style='font-size:13px;opacity:0.65;margin-bottom:3px'>"
                     f"{label}　<span style='font-weight:normal'>{hint}</span></div>"
-                    f"<div style='font-size:14px;line-height:1.6'>{idea.get(key, '—')}</div>"
+                    f"<div style='font-size:15px;line-height:1.6'>{idea.get(key, '—')}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -654,7 +655,7 @@ def _show_analysis():
     if idea.get("evidence"):
         st.markdown(
             f"<div style='padding:10px 14px;border-radius:6px;"
-            f"border-left:4px solid #6c757d;background:#f8f9fa;font-size:13px;"
+            f"border-left:4px solid #6c757d;background:#f8f9fa;font-size:15px;"
             f"margin-top:12px;color:#1a1a1a'>"
             f"📝 <b>根拠レビュー:</b> {idea['evidence']}</div>",
             unsafe_allow_html=True,
@@ -663,9 +664,15 @@ def _show_analysis():
     st.markdown("---")
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary"):
+        if st.session_state.get("cf_btn_loading"):
+            st.button("⏳ ページを生成中...", use_container_width=True, type="primary", disabled=True)
+            st.session_state["cf_btn_loading"] = False
             st.session_state["stage"] = "deepdive"
             st.rerun()
+        else:
+            if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary"):
+                st.session_state["cf_btn_loading"] = True
+                st.rerun()
 
 
 def _show_deepdive():
@@ -704,10 +711,10 @@ def _show_deepdive():
         st.markdown(
             "<div style='border:2px solid #2c7be5;padding:24px;"
             "border-radius:12px;text-align:center;margin-bottom:16px'>"
-            "<div style='font-size:28px;margin-bottom:8px'>🚀</div>"
-            "<div style='font-size:18px;font-weight:bold;margin-bottom:6px'>"
+            "<div style='font-size:32px;margin-bottom:8px'>🚀</div>"
+            "<div style='font-size:20px;font-weight:bold;margin-bottom:6px'>"
             "Makuakeパターンでページ生成中...</div>"
-            "<div style='font-size:14px'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
+            "<div style='font-size:15px'>10セクション構成・リターン設計・チェックリストを生成しています（30〜60秒）</div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -736,7 +743,7 @@ def _show_deepdive():
             st.markdown(
                 f"<div style='padding:14px 18px;border-radius:8px;"
                 f"border-left:4px solid #2c7be5;"
-                f"font-size:17px;font-weight:bold;margin-bottom:12px'>"
+                f"font-size:19px;font-weight:bold;margin-bottom:12px'>"
                 f"案{i}　{cc}</div>",
                 unsafe_allow_html=True,
             )
@@ -765,7 +772,7 @@ def _show_deepdive():
                 ):
                     st.markdown(
                         f"<div style='padding:14px 18px;border-radius:8px;"
-                        f"background:#f8f9fa;font-size:14px;line-height:1.8;"
+                        f"background:#f8f9fa;font-size:15px;line-height:1.8;"
                         f"white-space:pre-wrap;margin-bottom:8px;color:#1a1a1a'>"
                         f"{sec.get('content','')}"
                         f"</div>",
@@ -794,11 +801,11 @@ def _show_deepdive():
             st.markdown(
                 f"<div style='padding:16px 20px;border-radius:10px;"
                 f"border-left:5px solid {border};background:{bg};margin-bottom:14px;color:#1a1a1a'>"
-                f"<div style='font-size:16px;font-weight:bold;margin-bottom:6px'>"
+                f"<div style='font-size:18px;font-weight:bold;margin-bottom:6px'>"
                 f"{medal} {tier.get('label','')}{discount}{limit}</div>"
-                f"<div style='font-size:20px;font-weight:bold;color:{border};"
+                f"<div style='font-size:22px;font-weight:bold;color:{border};"
                 f"margin-bottom:8px'>{tier.get('price','')}</div>"
-                f"<div style='font-size:14px;line-height:1.7'>{tier.get('description','')}</div>"
+                f"<div style='font-size:15px;line-height:1.7'>{tier.get('description','')}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -817,10 +824,10 @@ def _show_deepdive():
                     f"background:#f8f9fa;margin-bottom:8px;color:#1a1a1a'>"
                     f"<div style='display:flex;justify-content:space-between;"
                     f"align-items:center;margin-bottom:4px'>"
-                    f"<span style='font-weight:bold;font-size:14px'>{item.get('item','')}</span>"
-                    f"<span style='font-size:12px;font-weight:bold;color:{badge_color}'>{badge_text}</span>"
+                    f"<span style='font-weight:bold;font-size:15px'>{item.get('item','')}</span>"
+                    f"<span style='font-size:13px;font-weight:bold;color:{badge_color}'>{badge_text}</span>"
                     f"</div>"
-                    f"<div style='font-size:13px;opacity:0.8'>{item.get('how','')}</div>"
+                    f"<div style='font-size:14px;opacity:0.8'>{item.get('how','')}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -835,7 +842,7 @@ def _show_deepdive():
                 st.markdown(
                     f"<div style='padding:12px 14px;border-radius:8px;"
                     f"border-left:4px solid #2c7be5;background:#e8f4f8;"
-                    f"margin-bottom:8px;font-size:14px;line-height:1.6;color:#1a1a1a'>"
+                    f"margin-bottom:8px;font-size:15px;line-height:1.6;color:#1a1a1a'>"
                     f"<b>{i}.</b> {imp}"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -954,8 +961,8 @@ def page_history():
                     f"border-left:4px solid #2c7be5;margin-bottom:8px;"
                     f"background:{bg};color:#1a1a1a'>"
                     f"<b>{icon} No.{idea.get('id',0):02d}　{idea.get('title','')}</b>　"
-                    f"<span style='font-size:12px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
-                    f"<span style='font-size:13px'>{ob.get('full_statement','')}</span>"
+                    f"<span style='font-size:14px;opacity:0.7'>{diff_info['label']} {diff_info['name']}</span><br>"
+                    f"<span style='font-size:15px'>{ob.get('full_statement','')}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -1173,6 +1180,18 @@ st.markdown("""
 <style>
 [data-testid="stSidebar"] { display: none; }
 [data-testid="stSidebarCollapsedControl"] { display: none; }
+/* ベースフォントサイズ */
+.stMarkdown p, .stMarkdown li, .stMarkdown span { font-size: 15px; }
+.stTextInput label, .stSelectbox label, .stCheckbox label,
+.stRadio label, .stRadio span { font-size: 15px !important; }
+.stSelectbox [data-baseweb="select"] { font-size: 15px; }
+.stAlert p { font-size: 15px; }
+.stCaption p { font-size: 13px !important; }
+.streamlit-expanderHeader p { font-size: 15px !important; }
+[data-baseweb="tab"] button { font-size: 15px !important; }
+.stInfo p, .stWarning p, .stSuccess p, .stError p { font-size: 15px; }
+/* ページリンク */
+[data-testid="stPageLink"] p { font-size: 15px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1211,7 +1230,7 @@ with col_right:
     rc1, rc2 = st.columns([3, 2])
     with rc1:
         st.markdown(
-            f"<div style='text-align:right;padding-top:6px;font-size:13px;opacity:0.7'>"
+            f"<div style='text-align:right;padding-top:6px;font-size:15px;opacity:0.7'>"
             f"👤 {user.get('name', '')}</div>",
             unsafe_allow_html=True,
         )
