@@ -452,15 +452,22 @@ def _show_input():
         col_diff, col_sim, col_mode = st.columns([2, 2, 2])
 
         with col_diff:
-            st.markdown(
-                "**📊 難易度フィルター**　"
-                "<span style='font-size:11px;opacity:0.6'>（未選択 = すべて）</span>",
-                unsafe_allow_html=True,
+            _diff_options = ["すべて"] + [f"★{k} {v['name']}" for k, v in DIFFICULTY.items()]
+            _diff_help = {f"★{k} {v['name']}": v["desc"] for k, v in DIFFICULTY.items()}
+            diff_selection = st.multiselect(
+                "**📊 難易度フィルター**",
+                options=_diff_options,
+                default=["すべて"],
+                key="diff_multiselect",
             )
-            selected_diffs = []
-            for k, v in DIFFICULTY.items():
-                if st.checkbox(f"★{k} {v['name']}", help=v["desc"], key=f"diff_cb_{k}"):
-                    selected_diffs.append(k)
+            # 「すべて」が含まれる or 未選択 → フィルターなし
+            if "すべて" in diff_selection or not diff_selection:
+                selected_diffs = []
+            else:
+                selected_diffs = [
+                    k for k, v in DIFFICULTY.items()
+                    if f"★{k} {v['name']}" in diff_selection
+                ]
 
         with col_sim:
             _sim_options = {
@@ -475,7 +482,6 @@ def _show_input():
                 format_func=lambda x: _sim_options[x],
                 index=1,
             )
-            st.caption("※ 20件超はAmazonのボット検知リスクが高まるため上限を20件に設定しています。")
 
         with col_mode:
             st.markdown("")
