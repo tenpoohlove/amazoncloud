@@ -462,7 +462,7 @@ def _show_input():
             st.rerun()
 
     # 難易度フィルター（フォーム外でreactiveに）
-    st.markdown("**📊 難易度フィルター**")
+    st.markdown("#### 📊 難易度フィルター")
     _dcols = st.columns(6)
     _dcols[0].checkbox("すべて",      key="diff_cb_all", on_change=_on_diff_all_change)
     _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
@@ -507,7 +507,7 @@ def _show_input():
             else:
                 st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
-        st.markdown("##### 📝 レビュー収集モード")
+        st.markdown("#### 📝 レビュー収集モード")
         review_mode = st.radio(
             "レビュー収集モード",
             options=["amazon", "gemini"],
@@ -1472,8 +1472,18 @@ st.markdown("""
 [data-testid="stSidebarCollapsedControl"] { display: none; }
 /* ベースフォントサイズ */
 .stMarkdown p, .stMarkdown li, .stMarkdown span { font-size: 15px; }
-.stTextInput label, .stSelectbox label, .stCheckbox label,
+/* 見出しは潰さず自然なサイズを維持 */
+.stMarkdown h1 { font-size: 2rem !important; }
+.stMarkdown h2 { font-size: 1.6rem !important; }
+.stMarkdown h3 { font-size: 1.3rem !important; }
+.stMarkdown h4 { font-size: 1.1rem !important; font-weight: 600 !important; }
+.stMarkdown h5 { font-size: 1rem !important; font-weight: 600 !important; }
+/* ウィジェットラベル */
+.stTextInput label { font-size: 16px !important; font-weight: 600 !important; }
+.stSelectbox label { font-size: 16px !important; font-weight: 600 !important; }
+.stCheckbox label { font-size: 14px !important; }
 .stRadio label, .stRadio span { font-size: 15px !important; }
+.stRadio > label:first-child { font-size: 16px !important; font-weight: 600 !important; }
 .stSelectbox [data-baseweb="select"] { font-size: 15px; }
 .stAlert p { font-size: 15px; }
 .stCaption p { font-size: 13px !important; }
