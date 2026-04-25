@@ -37,30 +37,57 @@ STAR_FILTER = {
     1: "one_star",
 }
 
-_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+_CHROME_PROFILES = [
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"Windows"',
+        "impersonate": "chrome131",
+    },
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "ch_ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        "platform": '"Windows"',
+        "impersonate": "chrome124",
+    },
+    {
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"macOS"',
+        "impersonate": "chrome131",
+    },
 ]
 
 
 # ─────────────────────────────────────────────
 # ユーティリティ
 # ─────────────────────────────────────────────
-def _headers() -> dict:
-    return {
-        "User-Agent": random.choice(_USER_AGENTS),
+def _headers(referer: str = "") -> dict:
+    p = random.choice(_CHROME_PROFILES)
+    h = {
+        "User-Agent": p["ua"],
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                  "image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Site": "same-origin" if referer else "none",
+        "Sec-Fetch-User": "?1",
+        "sec-ch-ua": p["ch_ua"],
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": p["platform"],
+        "Cache-Control": "max-age=0",
+        "DNT": "1",
     }
+    if referer:
+        h["Referer"] = referer
+    return h
 
 
 def extract_asin(url: str) -> Optional[str]:
@@ -90,7 +117,41 @@ def _is_blocked(text: str) -> bool:
         or "captcha" in lower
         or "api-services-support" in lower
         or "sorry, we just need to make sure" in lower
+        or "enter the characters you see below" in lower
+        or "type the characters" in lower
     )
+
+
+def _warm_session(domain: str, session: requests.Session) -> None:
+    """セッションウォーミング: トップページを踏んでCookieを取得する"""
+    try:
+        time.sleep(random.uniform(1.0, 2.0))
+        session.get(domain, headers=_headers(), timeout=20)
+        time.sleep(random.uniform(0.8, 1.5))
+    except Exception:
+        pass
+
+
+def _get_with_retry(
+    url: str,
+    session: requests.Session,
+    referer: str = "",
+    max_retries: int = 2,
+) -> "requests.Response | None":
+    """ブロック検知時に待機してリトライする"""
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            wait = random.uniform(5.0, 10.0) * attempt
+            print(f"[scraper] ブロック検知 → {wait:.1f}秒待機してリトライ ({attempt}/{max_retries})")
+            time.sleep(wait)
+        try:
+            resp = session.get(url, headers=_headers(referer), timeout=30)
+            resp.raise_for_status()
+            if not _is_blocked(resp.text):
+                return resp
+        except Exception as e:
+            print(f"[scraper] リクエストエラー attempt{attempt+1}: {e}")
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -113,15 +174,10 @@ def scrape_amazon_search(
     urls = []
 
     search_url = f"{domain}/s?k={quote(keyword)}&language=ja_JP"
-    try:
-        time.sleep(random.uniform(1.5, 2.5))
-        resp = session.get(search_url, headers=_headers(), timeout=30)
-        resp.raise_for_status()
-        if _is_blocked(resp.text):
-            print(f"[scraper] Amazon検索ブロック検出: {keyword}")
-            return []
-    except Exception as e:
-        print(f"[scraper] Amazon検索エラー: {e}")
+    time.sleep(random.uniform(1.5, 2.5))
+    resp = _get_with_retry(search_url, session, max_retries=1)
+    if resp is None:
+        print(f"[scraper] Amazon検索ブロック検出: {keyword}")
         return []
 
     soup = BeautifulSoup(resp.text, "lxml")
@@ -145,10 +201,8 @@ def scrape_amazon_search(
 # ─────────────────────────────────────────────
 def scrape_product_page(url: str, session: requests.Session) -> dict:
     time.sleep(random.uniform(1.5, 3.0))
-    resp = session.get(url, headers=_headers(), timeout=30)
-    resp.raise_for_status()
-
-    if _is_blocked(resp.text):
+    resp = _get_with_retry(url, session, referer="https://www.amazon.co.jp/", max_retries=2)
+    if resp is None:
         raise RuntimeError(
             "Amazonがアクセスをブロックしています。"
             "しばらく待つか VPN / ScraperAPI をご利用ください。"
@@ -341,32 +395,26 @@ def _collect_from_product_reviews_page(
             f"?ie=UTF8&reviewerType=all_reviews"
             f"&sortBy={sort_by}&pageNumber={page}"
         )
-        hdrs = {**_headers(), "Referer": referer}
         time.sleep(random.uniform(1.5, 2.5))
-        try:
-            resp = session.get(url, headers=hdrs, timeout=30)
-            resp.raise_for_status()
-            if _is_blocked(resp.text):
-                break
-            if "ap/signin" in resp.url.lower() or "ap/signin" in resp.text.lower()[:500]:
-                break
-            soup = BeautifulSoup(resp.text, "lxml")
-            page_results = []
-            for el in soup.find_all("span", {"data-hook": "review-body"}):
-                text = el.get_text(" ", strip=True)
-                key = text[:20]
-                if len(text) > 10 and key not in seen_texts:
-                    seen_texts.add(key)
-                    star = _parse_star_from_el(el)
-                    page_results.append({"star": star, "text": text})
-            if not page_results:
-                break
-            results.extend(page_results)
-            print(f"[scraper]   /product-reviews/ p{page}({sort_by}): {len(page_results)}件")
-            referer = url
-        except Exception as e:
-            print(f"[scraper] product-reviews p{page}: {e}")
+        resp = _get_with_retry(url, session, referer=referer, max_retries=1)
+        if resp is None:
             break
+        if "ap/signin" in resp.url.lower() or "ap/signin" in resp.text.lower()[:500]:
+            break
+        soup = BeautifulSoup(resp.text, "lxml")
+        page_results = []
+        for el in soup.find_all("span", {"data-hook": "review-body"}):
+            text = el.get_text(" ", strip=True)
+            key = text[:20]
+            if len(text) > 10 and key not in seen_texts:
+                seen_texts.add(key)
+                star = _parse_star_from_el(el)
+                page_results.append({"star": star, "text": text})
+        if not page_results:
+            break
+        results.extend(page_results)
+        print(f"[scraper]   /product-reviews/ p{page}({sort_by}): {len(page_results)}件")
+        referer = url
 
     return results
 
@@ -460,7 +508,9 @@ def scrape_all(
     n_similar = max_similar_products
 
     domain = _domain(url)
-    session = requests.Session(impersonate="chrome124")
+    _profile = random.choice(_CHROME_PROFILES)
+    session = requests.Session(impersonate=_profile["impersonate"])
+    _warm_session(domain, session)
     sources = []
 
     def _prog(msg: str, pct: int):
