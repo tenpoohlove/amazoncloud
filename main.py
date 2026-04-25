@@ -183,6 +183,30 @@ def _restore_draft(user: dict):
     st.session_state["stage"] = stage
 
 
+def _render_pdf_button(product_data: dict, idea: dict, deep_dive: dict, key_suffix: str = ""):
+    """現在の deep_dive 内容で PDF を生成してダウンロードボタンを表示する"""
+    try:
+        pdf_bytes = generate_pdf_bytes(
+            product_data=product_data,
+            idea=idea,
+            deep_dive=deep_dive,
+            generated_at=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
+            model_name="Gemini 2.5 Flash",
+        )
+        asin = extract_asin(st.session_state.get("url", "unknown")) or "unknown"
+        st.download_button(
+            label="📄 PDFレポートをダウンロード（クラファン企画書）",
+            data=pdf_bytes,
+            file_name=f"cf_report_{asin}_idea{idea['id']:02d}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+            key=f"pdf_dl_{key_suffix}",
+        )
+    except Exception as e:
+        st.warning(f"PDF生成に失敗しました: {e}")
+
+
 def _idea_card(idea: dict, col):
     diff = idea.get("difficulty", 1)
     icon = _DIFF_ICON.get(diff, "⚪")
@@ -1037,23 +1061,11 @@ def _show_deepdive():
                 except Exception as e:
                     st.error(f"再生成に失敗しました: {e}")
 
+        st.divider()
+        _render_pdf_button(product_data, idea, deep_dive, "tab_check")
+
     st.divider()
-    try:
-        pdf_bytes = generate_pdf_bytes(
-            product_data=product_data, idea=idea, deep_dive=deep_dive,
-            generated_at=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
-            model_name="Gemini 2.5 Flash",
-        )
-        st.download_button(
-            label="📄 PDFレポートをダウンロード（クラファン企画書）",
-            data=pdf_bytes,
-            file_name=f"cf_report_{extract_asin(st.session_state.get('url','unknown'))}_idea{idea['id']:02d}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary",
-        )
-    except Exception as e:
-        st.warning(f"PDF生成に失敗しました: {e}")
+    _render_pdf_button(product_data, idea, deep_dive, "bottom")
 
 
 # ─────────────────────────────────────────────
