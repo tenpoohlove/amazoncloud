@@ -812,7 +812,36 @@ def _show_analysis():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.session_state.get("cf_btn_loading"):
-            st.button("⏳ ページを生成中...", use_container_width=True, type="primary", disabled=True)
+            st.markdown("""
+<style>
+@keyframes _cf_spin { to { transform: rotate(360deg); } }
+@keyframes _cf_shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.cf-gen-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 0.58rem 1rem;
+  background: linear-gradient(90deg, #0052a3, #1a8cff, #0052a3);
+  background-size: 200% auto;
+  animation: _cf_shimmer 1.2s linear infinite;
+  color: white; border-radius: 8px;
+  font-size: 15px; font-weight: 600;
+  cursor: not-allowed; user-select: none;
+}
+.cf-gen-spinner {
+  width: 16px; height: 16px; flex-shrink: 0;
+  border: 2.5px solid rgba(255,255,255,0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: _cf_spin 0.75s linear infinite;
+}
+</style>
+<div class="cf-gen-loading">
+  <div class="cf-gen-spinner"></div>
+  クラファンページを生成中...
+</div>
+""", unsafe_allow_html=True)
             st.session_state["cf_btn_loading"] = False
             st.session_state["stage"] = "deepdive"
             st.rerun()
