@@ -851,7 +851,7 @@ def _show_deepdive():
         deep_dive = cache[selected_id]
 
     tab_copy, tab_pages, tab_returns, tab_check = st.tabs([
-        "🎯 キャッチコピー", "📄 ページ構成（10セクション）", "💰 リターン設計", "✅ チェックリスト",
+        "🎯 キャッチコピー", "📄 ページ構成（10セクション）", "💰 リターン設計", "✅ コンセプト強度チェック",
     ])
 
     with tab_copy:
@@ -934,11 +934,11 @@ def _show_deepdive():
             total = len(checklist)
             score_pct = ok_count / total
             score_color = "#28a745" if score_pct >= 0.8 else "#f39c12" if score_pct >= 0.5 else "#dc3545"
-            score_label = "🟢 提出準備OK" if score_pct >= 0.8 else "🟡 強化してから出そう" if score_pct >= 0.5 else "🔴 要強化が多数あります"
+            score_label = "🟢 このコンセプトは強い" if score_pct >= 0.8 else "🟡 もう少し磨けば戦える" if score_pct >= 0.5 else "🔴 コンセプトを練り直そう"
             st.markdown(
                 f"<div style='padding:16px 20px;border-radius:12px;background:#f8f9fa;"
                 f"margin-bottom:24px;text-align:center;color:#1a1a1a'>"
-                f"<div style='font-size:13px;opacity:0.65;margin-bottom:4px'>Makuake提出準備スコア</div>"
+                f"<div style='font-size:13px;opacity:0.65;margin-bottom:4px'>コンセプト強度スコア</div>"
                 f"<div style='font-size:48px;font-weight:bold;color:{score_color};line-height:1.1'>"
                 f"{ok_count}<span style='font-size:24px'> / {total}</span></div>"
                 f"<div style='font-size:16px;font-weight:bold;color:{score_color};margin-top:4px'>"
