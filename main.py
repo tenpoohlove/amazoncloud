@@ -462,7 +462,7 @@ def _show_input():
             st.rerun()
 
     # URL入力（フォーム外・一番上）
-    st.markdown("#### 🔗 Amazon 商品URL")
+    st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:8px 0 4px'>🔗 Amazon 商品URL</h4>", unsafe_allow_html=True)
     url = st.text_input(
         "Amazon商品URL",
         value=st.session_state.get("url", ""),
@@ -471,7 +471,7 @@ def _show_input():
         label_visibility="collapsed",
     )
 
-    st.markdown("#### 📊 難易度フィルター")
+    st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:16px 0 4px'>📊 難易度フィルター</h4>", unsafe_allow_html=True)
     _dcols = st.columns(6)
     _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
     _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
@@ -489,7 +489,7 @@ def _show_input():
         col_sim, col_mode = st.columns([2, 2])
 
         with col_sim:
-            st.markdown("#### 🔍 類似品レビュー数")
+            st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:0 0 4px'>🔍 類似品レビュー数</h4>", unsafe_allow_html=True)
             _sim_options = {
                 0:  "0件（対象商品のみ）⚡ 約30秒",
                 5:  "5件（+40件）約1分",
@@ -511,7 +511,7 @@ def _show_input():
             else:
                 st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
-        st.markdown("#### 📝 レビュー収集モード")
+        st.markdown("<h4 style='font-size:1.2rem;font-weight:700;margin:16px 0 4px'>📝 レビュー収集モード</h4>", unsafe_allow_html=True)
         review_mode = st.radio(
             "レビュー収集モード",
             options=["amazon", "gemini"],
