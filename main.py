@@ -468,21 +468,21 @@ def _show_input():
     with st.container(border=True):
         st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
         _diff_opts = [
-            ("all", "すべて", ""),
-            (1, "★1", "超低コスト"),
-            (2, "★2", "低コスト"),
-            (3, "★3", "中コスト"),
-            (4, "★4", "高難度"),
-            (5, "★5", "超高難度"),
+            ("all", "すべて", "", "すべての難易度を対象にします"),
+            (1, "★1", "超低コスト", DIFFICULTY[1]["desc"]),
+            (2, "★2", "低コスト",   DIFFICULTY[2]["desc"]),
+            (3, "★3", "中コスト",   DIFFICULTY[3]["desc"]),
+            (4, "★4", "高難度",     DIFFICULTY[4]["desc"]),
+            (5, "★5", "超高難度",   DIFFICULTY[5]["desc"]),
         ]
         _dc = st.columns(6)
-        for _col, (_key, _main, _sub) in zip(_dc, _diff_opts):
+        for _col, (_key, _main, _sub, _help) in zip(_dc, _diff_opts):
             if _key == "all":
                 _sel = st.session_state.get("diff_cb_all", True)
             else:
                 _sel = st.session_state.get(f"diff_cb_{_key}", False)
             _lbl = f"**{_main}**  \n{_sub}" if _sub else f"**{_main}**"
-            if _col.button(_lbl, key=f"diff_card_{_key}",
+            if _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
                            type="primary" if _sel else "secondary", use_container_width=True):
                 if _key == "all":
                     st.session_state["diff_cb_all"] = True
@@ -1511,15 +1511,15 @@ st.markdown("""
   white-space: pre-wrap !important;
   line-height: 1.4 !important;
 }
-/* 選択中カードを透け感のある赤に */
+/* 選択中カードを柔らかい透け赤に */
 [data-testid="stBaseButton-primary"] {
-  background-color: rgba(255, 75, 75, 0.15) !important;
-  border: 2px solid rgba(255, 75, 75, 0.6) !important;
-  color: #ff8080 !important;
+  background-color: rgba(220, 80, 80, 0.12) !important;
+  border: 1.5px solid rgba(220, 80, 80, 0.45) !important;
+  color: #e89090 !important;
 }
 [data-testid="stBaseButton-primary"]:hover {
-  background-color: rgba(255, 75, 75, 0.25) !important;
-  color: #ffaaaa !important;
+  background-color: rgba(220, 80, 80, 0.2) !important;
+  color: #f0a8a8 !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
