@@ -993,6 +993,150 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 
 
 # ─────────────────────────────────────────────
+# チェックリストフィードバックによる改善再生成
+# ─────────────────────────────────────────────
+def regenerate_with_checklist(
+    idea: dict,
+    product_data: dict,
+    checklist: list,
+    api_key: str | None = None,
+) -> dict:
+    """
+    チェックリストの「要強化」項目をフィードバックとして、
+    弱点を解消した改善版CFページを再生成する。
+    """
+    _api_key = api_key or os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=_api_key)
+
+    needs_work = [item for item in checklist if item.get("status") != "OK"]
+    ok_items   = [item for item in checklist if item.get("status") == "OK"]
+
+    feedback_lines = "\n".join(
+        f"  ・【要強化】{item['item']}\n    → {item.get('how', '')}"
+        for item in needs_work
+    )
+    strengths_lines = "\n".join(
+        f"  ・【強み】{item['item']}　（{item.get('how', '')}）"
+        for item in ok_items
+    )
+
+    ob = idea.get("one_belief", {})
+    diff = idea.get("difficulty", 1)
+    diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
+    title_main = product_data.get("title", "不明")
+
+    prompt = f"""あなたはMakuakeのトップクリエイターを支援するクラウドファンディング専門コピーライターです。
+すべての出力は必ず日本語で書いてください。
+フレームワーク名・ツール名は文章内に一切記載しないこと。
+
+以下のアイデアについて、【改善フィードバック】の指摘をすべて解消した
+改善版クラウドファンディングページを生成してください。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【アイデア情報】
+タイトル: {idea.get('title', '')}
+難易度: {diff_info['label']} {diff_info['name']}
+製造コスト: {idea.get('estimated_cost', '')}
+コアメッセージ: {ob.get('full_statement', '')}
+Q1 新規性: {idea.get('q1_novelty', '')}
+Q2 ベネフィット: {idea.get('q2_benefit', '')}
+Q5 共通の敵: {idea.get('q5_enemy', '')}
+Q6 緊急性: {idea.get('q6_urgency', '')}
+Q9 オファー: {idea.get('q9_offer', '')}
+元商品: {title_main}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【改善フィードバック（必ずすべて反映すること）】
+{feedback_lines if feedback_lines else "（要強化なし）"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【維持・強化すべき強み】
+{strengths_lines if strengths_lines else "（なし）"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+前回と同じ内容をそのまま返さないこと。
+フィードバックの指摘を具体的に反映した、より強力なバージョンを生成してください。
+
+以下のJSONを返してください（マークダウン・コードブロック不要）:
+
+{{
+  "catchcopy": [
+    "改善版キャッチコピー案1（フィードバックを反映・20〜40文字）",
+    "改善版キャッチコピー案2",
+    "改善版キャッチコピー案3"
+  ],
+
+  "page_sections": [
+    {{"section": 1, "name": "ファーストビュー", "purpose": "強いキャッチで商品の全体像を伝える",
+     "content": "改善版コンテンツ（150〜400字）", "media": "推奨メディア"}},
+    {{"section": 2, "name": "課題提起（共感）", "purpose": "ターゲットの痛みを言語化し自分事にさせる",
+     "content": "改善版コンテンツ（150〜300字）", "media": "推奨メディア"}},
+    {{"section": 3, "name": "解決策の提示", "purpose": "なぜこのアイデアが唯一の答えなのかを示す",
+     "content": "改善版コンテンツ（150〜300字）", "media": "推奨メディア"}},
+    {{"section": 4, "name": "機能・ベネフィット", "purpose": "具体的な価値をPoint形式で整理する",
+     "content": "改善版コンテンツ（Point1〜5、各50〜100字）", "media": "推奨メディア"}},
+    {{"section": 5, "name": "技術的証拠・差別化", "purpose": "数値・比較・認証で本物感を担保する",
+     "content": "改善版コンテンツ（150〜300字）", "media": "推奨メディア"}},
+    {{"section": 6, "name": "利用シーン別ベネフィット", "purpose": "シーン×ベネフィットで購入後の生活を想像させる",
+     "content": "改善版コンテンツ（3〜4シーン、各100字）", "media": "推奨メディア"}},
+    {{"section": 7, "name": "信頼形成", "purpose": "受賞・認証・開発背景で信頼性を構築する",
+     "content": "改善版コンテンツ（150〜300字）", "media": "推奨メディア"}},
+    {{"section": 8, "name": "社会的証明", "purpose": "サポーター・メディア・口コミで安心感を生む",
+     "content": "改善版コンテンツ（150〜300字）", "media": "推奨メディア"}},
+    {{"section": 9, "name": "オファー設計", "purpose": "今すぐ支援する理由を価格と限定性で作る",
+     "content": "改善版コンテンツ（150〜250字）", "media": "推奨メディア"}},
+    {{"section": 10, "name": "FAQ・保証・CTA", "purpose": "不安を除去し購入導線を完成させる",
+     "content": "改善版コンテンツ（150〜250字）", "media": "推奨メディア"}}
+  ],
+
+  "returns": {{
+    "early_bird": {{"label": "アーリーバード", "discount": "35%OFF", "limit": "先着XX名様限定",
+                   "price": "XX,XXX円", "description": "改善版リターン内容（100字以内）"}},
+    "standard":   {{"label": "通常先行", "discount": "20%OFF",
+                   "price": "XX,XXX円", "description": "改善版内容（100字以内）"}},
+    "premium":    {{"label": "プレミアム", "price": "XX,XXX円",
+                   "description": "改善版内容（100字以内）"}}
+  }},
+
+  "checklist": [
+    {{"item": "コンセプトの独自性（既存品と明確に違う点がある）", "status": "OK または 要強化",
+      "how": "改善後の評価（50字以内）"}},
+    {{"item": "ターゲット顧客と痛みの具体性", "status": "...", "how": "..."}},
+    {{"item": "一言で伝わる価値提案の強さ", "status": "...", "how": "..."}},
+    {{"item": "レビュー根拠の信頼性", "status": "...", "how": "..."}},
+    {{"item": "製造・実現可能性", "status": "...", "how": "..."}},
+    {{"item": "Makuake向き価格帯", "status": "...", "how": "..."}},
+    {{"item": "緊急性・限定性の設計可能性", "status": "...", "how": "..."}},
+    {{"item": "競合との比較優位性", "status": "...", "how": "..."}},
+    {{"item": "開発ストーリーの作りやすさ", "status": "...", "how": "..."}},
+    {{"item": "Makuake成功パターンとの整合性", "status": "...", "how": "..."}}
+  ],
+
+  "improvements": [
+    "さらに改善するなら優先度1",
+    "優先度2",
+    "優先度3"
+  ]
+}}
+
+すべて日本語で、フィードバックを具体的に反映した改善版を書いてください。"""
+
+    raw = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+    ).text.strip()
+
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        clean = re.sub(r"```(?:json)?", "", raw).strip()
+        m = re.search(r"\{.*\}", clean, re.DOTALL)
+        if not m:
+            raise ValueError(f"改善再生成のJSON解析に失敗しました:\n{raw[:500]}")
+        result = json.loads(m.group())
+
+    return result
+
+
+# ─────────────────────────────────────────────
 # PDF生成
 # ─────────────────────────────────────────────
 def _get_jp_font_path() -> str | None:

@@ -17,6 +17,7 @@ from analyzer import (
     generate_ideas_fast,
     generate_idea_analysis,
     generate_deep_dive_content,
+    regenerate_with_checklist,
     generate_pdf_bytes,
     DIFFICULTY,
 )
@@ -997,6 +998,44 @@ def _show_deepdive():
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+
+        if checklist and needs_work:
+            st.divider()
+            st.markdown(
+                f"<div style='font-size:15px;color:#1a1a1a;margin-bottom:8px'>"
+                f"要強化が <b>{len(needs_work)} 件</b> あります。"
+                f"フィードバックをもとに改善版を自動生成できます。</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "🔄 弱点を改善して再生成する",
+                key="regen_with_checklist",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.markdown(
+                    "<div style='border:2px solid #2c7be5;padding:20px;"
+                    "border-radius:12px;text-align:center;margin:12px 0;color:#1a1a1a'>"
+                    "<div style='font-size:20px;font-weight:bold;margin-bottom:6px'>"
+                    "🔄 弱点を解消した改善版を生成中...</div>"
+                    "<div style='font-size:14px'>要強化項目のフィードバックを反映しています（30〜60秒）</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                progress_r = st.progress(0, text="改善版を生成中...")
+                try:
+                    progress_r.progress(20, text="フィードバックを反映中...")
+                    improved = regenerate_with_checklist(
+                        idea, product_data, checklist, api_key
+                    )
+                    progress_r.progress(90, text="完了！")
+                    cache[selected_id] = improved
+                    st.session_state["deep_dive_cache"] = cache
+                    _save_draft()
+                    progress_r.progress(100, text="完了！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"再生成に失敗しました: {e}")
 
     st.divider()
     try:
