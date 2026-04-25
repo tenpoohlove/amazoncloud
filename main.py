@@ -1501,7 +1501,7 @@ st.markdown("""
 }
 /* ラジオボタンの横間隔を広げる */
 [data-testid="stRadio"] > div[role="radiogroup"] {
-  gap: 32px !important;
+  gap: 56px !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
