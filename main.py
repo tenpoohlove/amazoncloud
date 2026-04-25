@@ -524,15 +524,15 @@ def _show_input():
                 horizontal=True,
                 label_visibility="collapsed",
             )
-        if review_mode == "gemini":
-            st.caption(
-                "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
-                "AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。"
-            )
+            if review_mode == "gemini":
+                st.caption(
+                    "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
+                    "AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。"
+                )
 
-        submitted = st.form_submit_button(
-            "🔍 アイデアを生成する", use_container_width=True, type="primary"
-        )
+            submitted = st.form_submit_button(
+                "🔍 アイデアを生成する", use_container_width=True, type="primary"
+            )
 
     if not submitted:
         return
