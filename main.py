@@ -1499,9 +1499,12 @@ st.markdown("""
   padding: 0 !important;
   box-shadow: none !important;
 }
-/* ラジオボタンの横間隔を広げる */
+/* ラジオボタンを両端まで均等に広げる（難易度フィルターに合わせる） */
 [data-testid="stRadio"] > div[role="radiogroup"] {
-  gap: 56px !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  gap: 0 !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
