@@ -462,11 +462,13 @@ def _show_input():
             st.rerun()
 
     # URL入力（フォーム外・一番上）
+    st.markdown("#### 🔗 Amazon 商品URL")
     url = st.text_input(
-        "#### 🔗 Amazon 商品URL",
+        "Amazon商品URL",
         value=st.session_state.get("url", ""),
         placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
         key="url_input_field",
+        label_visibility="collapsed",
     )
 
     st.markdown("#### 📊 難易度フィルター")
@@ -487,6 +489,7 @@ def _show_input():
         col_sim, col_mode = st.columns([2, 2])
 
         with col_sim:
+            st.markdown("#### 🔍 類似品レビュー数")
             _sim_options = {
                 0:  "0件（対象商品のみ）⚡ 約30秒",
                 5:  "5件（+40件）約1分",
@@ -494,10 +497,11 @@ def _show_input():
                 20: "20件（+160件）約2〜3分",
             }
             sim_count = st.selectbox(
-                "🔍 類似品レビュー数",
+                "類似品レビュー数",
                 options=list(_sim_options.keys()),
                 format_func=lambda x: _sim_options[x],
                 index=1,
+                label_visibility="collapsed",
             )
 
         with col_mode:
@@ -1477,8 +1481,8 @@ st.markdown("""
 .stMarkdown h1 { font-size: 2rem !important; }
 .stMarkdown h2 { font-size: 1.6rem !important; }
 .stMarkdown h3 { font-size: 1.3rem !important; }
-.stMarkdown h4 { font-size: 1.1rem !important; font-weight: 600 !important; }
-.stMarkdown h5 { font-size: 1rem !important; font-weight: 600 !important; }
+.stMarkdown h4 { font-size: 1.2rem !important; font-weight: 700 !important; }
+.stMarkdown h5 { font-size: 1.05rem !important; font-weight: 600 !important; }
 /* ウィジェットラベル */
 .stTextInput label { font-size: 16px !important; font-weight: 600 !important; }
 .stSelectbox label { font-size: 16px !important; font-weight: 600 !important; }
