@@ -461,68 +461,69 @@ def _show_input():
             st.session_state["last_error"] = ""
             st.rerun()
 
-    # URL入力（フォーム外・一番上）
-    st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:8px 0 4px'>🔗 Amazon 商品URL</h4>", unsafe_allow_html=True)
-    url = st.text_input(
-        "Amazon商品URL",
-        value=st.session_state.get("url", ""),
-        placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
-        key="url_input_field",
-        label_visibility="collapsed",
-    )
+    # ① URL入力カード
+    with st.container(border=True):
+        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 1　分析したい商品</p>", unsafe_allow_html=True)
+        url = st.text_input(
+            "🔗 Amazon 商品URL",
+            value=st.session_state.get("url", ""),
+            placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
+            key="url_input_field",
+        )
 
-    st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:16px 0 4px'>📊 難易度フィルター</h4>", unsafe_allow_html=True)
-    _dcols = st.columns(6)
-    _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
-    _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
-    _dcols[2].checkbox("★2 低コスト",   key="diff_cb_2",   on_change=_on_diff_item_change)
-    _dcols[3].checkbox("★3 中コスト",   key="diff_cb_3",   on_change=_on_diff_item_change)
-    _dcols[4].checkbox("★4 高難度",     key="diff_cb_4",   on_change=_on_diff_item_change)
-    _dcols[5].checkbox("★5 超高難度",   key="diff_cb_5",   on_change=_on_diff_item_change)
+    # ② 難易度フィルターカード
+    with st.container(border=True):
+        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
+        _dcols = st.columns(6)
+        _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
+        _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
+        _dcols[2].checkbox("★2 低コスト",   key="diff_cb_2",   on_change=_on_diff_item_change)
+        _dcols[3].checkbox("★3 中コスト",   key="diff_cb_3",   on_change=_on_diff_item_change)
+        _dcols[4].checkbox("★4 高難度",     key="diff_cb_4",   on_change=_on_diff_item_change)
+        _dcols[5].checkbox("★5 超高難度",   key="diff_cb_5",   on_change=_on_diff_item_change)
     _checked = {k: st.session_state.get(f"diff_cb_{k}", False) for k in range(1, 6)}
     if st.session_state.get("diff_cb_all") or not any(_checked.values()):
         selected_diffs = []
     else:
         selected_diffs = [k for k, v in _checked.items() if v]
 
-    with st.form("main_form"):
-        col_sim, col_mode = st.columns([2, 2])
+    # ③ 詳細設定カード
+    with st.container(border=True):
+        st.markdown("<p style='font-size:13px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
+        with st.form("main_form"):
+            col_sim, col_mode = st.columns([2, 2])
+            with col_sim:
+                _sim_options = {
+                    0:  "0件（対象商品のみ）⚡ 約30秒",
+                    5:  "5件（+40件）約1分",
+                    10: "10件（+80件）約1.5分",
+                    20: "20件（+160件）約2〜3分",
+                }
+                sim_count = st.selectbox(
+                    "🔍 類似品レビュー数",
+                    options=list(_sim_options.keys()),
+                    format_func=lambda x: _sim_options[x],
+                    index=1,
+                )
+            with col_mode:
+                st.markdown("")
+                if sim_count == 0:
+                    st.caption("⚡ 対象商品のみ: 高速モード")
+                else:
+                    st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
 
-        with col_sim:
-            st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:0 0 4px'>🔍 類似品レビュー数</h4>", unsafe_allow_html=True)
-            _sim_options = {
-                0:  "0件（対象商品のみ）⚡ 約30秒",
-                5:  "5件（+40件）約1分",
-                10: "10件（+80件）約1.5分",
-                20: "20件（+160件）約2〜3分",
-            }
-            sim_count = st.selectbox(
-                "類似品レビュー数",
-                options=list(_sim_options.keys()),
-                format_func=lambda x: _sim_options[x],
-                index=1,
+            st.markdown("**📝 レビュー収集モード**")
+            review_mode = st.radio(
+                "レビュー収集モード",
+                options=["amazon", "gemini"],
+                format_func=lambda x: (
+                    "🛒 Amazonレビューのみ（実レビュー・高速）"
+                    if x == "amazon" else
+                    "🔍 Gemini Web検索レビュー込み（大量収集・低速）"
+                ),
+                horizontal=True,
                 label_visibility="collapsed",
             )
-
-        with col_mode:
-            st.markdown("")
-            if sim_count == 0:
-                st.caption("⚡ 対象商品のみ: 高速モード")
-            else:
-                st.caption("🟡 類似品あり: 深い調査（時間がかかります）")
-
-        st.markdown("<h4 style='font-size:1.4rem;font-weight:700;margin:16px 0 4px'>📝 レビュー収集モード</h4>", unsafe_allow_html=True)
-        review_mode = st.radio(
-            "レビュー収集モード",
-            options=["amazon", "gemini"],
-            format_func=lambda x: (
-                "🛒 Amazonレビューのみ（実レビュー・高速）"
-                if x == "amazon" else
-                "🔍 Gemini Web検索レビュー込み（大量収集・低速）"
-            ),
-            horizontal=True,
-            label_visibility="collapsed",
-        )
         if review_mode == "gemini":
             st.caption(
                 "※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。"
