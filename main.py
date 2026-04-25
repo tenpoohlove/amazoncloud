@@ -461,10 +461,17 @@ def _show_input():
             st.session_state["last_error"] = ""
             st.rerun()
 
-    # 難易度フィルター（フォーム外でreactiveに）
+    # URL入力（フォーム外・一番上）
+    url = st.text_input(
+        "#### 🔗 Amazon 商品URL",
+        value=st.session_state.get("url", ""),
+        placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
+        key="url_input_field",
+    )
+
     st.markdown("#### 📊 難易度フィルター")
     _dcols = st.columns(6)
-    _dcols[0].checkbox("すべて",      key="diff_cb_all", on_change=_on_diff_all_change)
+    _dcols[0].checkbox("すべて",        key="diff_cb_all", on_change=_on_diff_all_change)
     _dcols[1].checkbox("★1 超低コスト", key="diff_cb_1",   on_change=_on_diff_item_change)
     _dcols[2].checkbox("★2 低コスト",   key="diff_cb_2",   on_change=_on_diff_item_change)
     _dcols[3].checkbox("★3 中コスト",   key="diff_cb_3",   on_change=_on_diff_item_change)
@@ -476,14 +483,7 @@ def _show_input():
     else:
         selected_diffs = [k for k, v in _checked.items() if v]
 
-    st.markdown("")
     with st.form("main_form"):
-        url = st.text_input(
-            "🔗 Amazon 商品URL",
-            value=st.session_state.get("url", ""),
-            placeholder="https://www.amazon.co.jp/dp/XXXXXXXXXX",
-        )
-
         col_sim, col_mode = st.columns([2, 2])
 
         with col_sim:
@@ -532,6 +532,7 @@ def _show_input():
     if not submitted:
         return
 
+    url = st.session_state.get("url_input_field", "")
     if not url:
         st.error("Amazon商品URLを入力してください。")
         return
