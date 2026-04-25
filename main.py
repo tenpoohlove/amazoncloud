@@ -1465,6 +1465,18 @@ st.markdown("""
 .stInfo p, .stWarning p, .stSuccess p, .stError p { font-size: 15px; }
 /* ページリンク */
 [data-testid="stPageLink"] p { font-size: 15px !important; }
+/* ホームナビボタンをページリンク風に */
+[data-testid="stButton"][key="nav_home_btn"] button,
+div[data-testid="column"] button[kind="secondary"]:has(div p) {
+  background: none !important;
+  border: none !important;
+  padding: 4px 8px !important;
+  color: inherit !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1488,7 +1500,9 @@ col_left, col_right = st.columns([7, 3])
 with col_left:
     lc1, lc2, lc3, lc4, lc5, _ = st.columns([1.2, 1.2, 1.2, 1.5, 1.2, 3.7])
     with lc1:
-        st.page_link(_home_page,     label="ホーム",   icon="🏠")
+        if st.button("🏠 ホーム", key="nav_home_btn"):
+            st.session_state["stage"] = "input"
+            st.switch_page(_home_page)
     with lc2:
         st.page_link(_settings_page, label="設定",     icon="⚙️")
     with lc3:
