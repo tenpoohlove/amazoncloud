@@ -454,22 +454,20 @@ def _show_input():
         col_diff, col_sim, col_mode = st.columns([2, 2, 2])
 
         with col_diff:
-            _diff_options = ["すべて"] + [f"★{k} {v['name']}" for k, v in DIFFICULTY.items()]
-            _diff_help = {f"★{k} {v['name']}": v["desc"] for k, v in DIFFICULTY.items()}
-            diff_selection = st.multiselect(
-                "**📊 難易度フィルター**",
-                options=_diff_options,
-                default=["すべて"],
-                key="diff_multiselect",
-            )
-            # 「すべて」が含まれる or 未選択 → フィルターなし
-            if "すべて" in diff_selection or not diff_selection:
+            st.markdown("**📊 難易度フィルター**")
+            cb_all = st.checkbox("すべて", value=True, key="diff_cb_all")
+            _cb_row1, _cb_row2 = st.columns(2), st.columns(2)
+            cb1 = _cb_row1[0].checkbox("★1 超低コスト", key="diff_cb_1")
+            cb2 = _cb_row1[1].checkbox("★2 低コスト",   key="diff_cb_2")
+            cb3 = _cb_row2[0].checkbox("★3 中コスト",   key="diff_cb_3")
+            cb4 = _cb_row2[1].checkbox("★4 高難度",     key="diff_cb_4")
+            cb5_col, _ = st.columns(2)
+            cb5 = cb5_col.checkbox("★5 超高難度",       key="diff_cb_5")
+            _checked = {1: cb1, 2: cb2, 3: cb3, 4: cb4, 5: cb5}
+            if cb_all or not any(_checked.values()):
                 selected_diffs = []
             else:
-                selected_diffs = [
-                    k for k, v in DIFFICULTY.items()
-                    if f"★{k} {v['name']}" in diff_selection
-                ]
+                selected_diffs = [k for k, v in _checked.items() if v]
 
         with col_sim:
             _sim_options = {
