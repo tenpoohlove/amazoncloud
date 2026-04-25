@@ -497,22 +497,22 @@ def _show_input():
             10: "10件 約1.5分",
             20: "20件 約2〜3分",
         }
-        sim_count = st.segmented_control(
+        sim_count = st.pills(
             "🔍 類似品レビュー数",
             options=list(_sim_labels.keys()),
             format_func=lambda x: _sim_labels[x],
             default=5,
-            key="sim_seg",
+            key="sim_pills",
         )
         if sim_count is None:
             sim_count = 5
 
-        review_mode = st.segmented_control(
+        review_mode = st.pills(
             "📝 レビュー収集モード",
             options=["amazon", "gemini"],
             format_func=lambda x: "🛒 Amazonレビューのみ（実レビュー・高速）" if x == "amazon" else "🔍 Gemini Web検索レビュー込み（大量収集・低速）",
             default="amazon",
-            key="mode_seg",
+            key="mode_pills",
         )
         if review_mode is None:
             review_mode = "amazon"
