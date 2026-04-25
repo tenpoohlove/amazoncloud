@@ -1511,15 +1511,15 @@ st.markdown("""
   white-space: pre-wrap !important;
   line-height: 1.4 !important;
 }
-/* 選択中カードを落ち着いたブルーに（生成ボタンとは別セレクター） */
+/* 選択中カードを透け感のある赤に */
 [data-testid="stBaseButton-primary"] {
-  background-color: #1e3a5f !important;
-  border: 2px solid #3a7bd5 !important;
-  color: #c8e0ff !important;
+  background-color: rgba(255, 75, 75, 0.15) !important;
+  border: 2px solid rgba(255, 75, 75, 0.6) !important;
+  color: #ff8080 !important;
 }
 [data-testid="stBaseButton-primary"]:hover {
-  background-color: #254b7a !important;
-  color: #e0f0ff !important;
+  background-color: rgba(255, 75, 75, 0.25) !important;
+  color: #ffaaaa !important;
 }
 /* チェックボックスの横間隔を広げる */
 [data-testid="stCheckbox"] {
