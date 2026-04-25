@@ -1492,6 +1492,12 @@ st.markdown("""
 .stInfo p, .stWarning p, .stSuccess p, .stError p { font-size: 15px; }
 /* ページリンク */
 [data-testid="stPageLink"] p { font-size: 15px !important; }
+/* 入力フォームの枠を消して難易度フィルターと一体化 */
+[data-testid="stForm"] {
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
 /* ホームナビボタンをページリンク風に */
 [data-testid="stButton"][key="nav_home_btn"] button,
 div[data-testid="column"] button[kind="secondary"]:has(div p) {
