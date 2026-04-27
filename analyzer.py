@@ -443,6 +443,9 @@ def _fill_missing_difficulties(ideas: list, product_data: dict, client, build_pr
                 break
 
     ideas.sort(key=lambda x: x.get("difficulty", 99))
+    still_missing = [d for d in range(1, 6) if d not in {i.get("difficulty") for i in ideas}]
+    if still_missing:
+        print(f"[analyzer] 補完後も難易度 {still_missing} が不足しています（Gemini補完不完全）")
     return ideas[:10]
 
 
@@ -676,10 +679,18 @@ def generate_idea_analysis(
         result = json.loads(raw)
     except json.JSONDecodeError:
         clean = re.sub(r"```(?:json)?", "", raw).strip()
-        m = re.search(r"\{.*\}", clean, re.DOTALL)
-        if not m:
+        # raw_decode で最初の完全なJSONオブジェクトを取り出す（余分なテキスト付きに対応）
+        decoder = json.JSONDecoder()
+        result = None
+        for i in range(len(clean)):
+            if clean[i] == "{":
+                try:
+                    result, _ = decoder.raw_decode(clean, i)
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if result is None:
             raise ValueError(f"詳細分析のJSON解析に失敗しました:\n{raw[:500]}")
-        result = json.loads(m.group())
 
     result["_analyzed"] = True
     result.setdefault("id", idea.get("id", 1))
@@ -746,16 +757,16 @@ def generate_deep_dive_content(
 
     makuake_ref_section = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【Makuake売れ筋商品ページの参考（文章トーン・構成を参考にすること）】
+【クラファン売れ筋商品ページの参考（文章トーン・構成を参考にすること）】
 {makuake_context}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """ if makuake_context else ""
 
-    prompt = f"""あなたはMakuakeで歴代トップ30の実績を持つクラウドファンディング専門コピーライターです。
+    prompt = f"""あなたはクラウドファンディングで歴代トップ30の実績を持つクラウドファンディング専門コピーライターです。
 すべての出力は必ず日本語で書いてください。
 フレームワーク名・ツール名（「16-Word」「One Belief」等）は文章内に一切記載しないこと。
 
-以下のアイデアデータをもとに、Makuakeトップ30案件の成功パターンに従った
+以下のアイデアデータをもとに、クラファントップ30案件の成功パターンに従った
 クラウドファンディングページ構成を生成してください。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -786,7 +797,7 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
 商品名: {title_main}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {makuake_ref_section}
-【Makuakeトップ30 成功パターン（必ず従うこと）】
+【クラファントップ30 成功パターン（必ず従うこと）】
 
 ■ 売れるページの本質構造
   ・コピー = 価値の要約（冒頭1文で価値を言い切る）
@@ -938,7 +949,7 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
       "how": "OKなら実現しやすいポイントを。要強化なら「この部分の技術・コストが課題、代替案は〇〇」と提案"
     }},
     {{
-      "item": "Makuake向き価格帯（支援額として成立する設定）",
+      "item": "クラファン向き価格帯（支援額として成立する設定）",
       "status": "...",
       "how": "OKなら適正価格帯の根拠を。要強化なら「〇〇円前後に調整するか、セット販売で単価を上げる」と提案"
     }},
@@ -958,20 +969,20 @@ Q10 クロージング: {idea.get('q10_pushpull', '')}
       "how": "OKなら使えそうなストーリー軸を。要強化なら「〇〇という開発者視点・体験談を組み込む」と提案"
     }},
     {{
-      "item": "Makuake成功パターンとの整合性（売れるジャンル・形式か）",
+      "item": "クラファン成功パターンとの整合性（売れるジャンル・形式か）",
       "status": "...",
-      "how": "OKならMakuake上の類似成功事例のポイントを。要強化なら「〇〇要素を加えると人気カテゴリに近づく」と提案"
+      "how": "OKなら類似成功事例のポイントを。要強化なら「〇〇要素を加えると人気カテゴリに近づく」と提案"
     }}
   ],
 
   "improvements": [
-    "改善提案1（具体的に。このコンセプトのMakuake成功確率を上げるために最優先すべきこと）",
+    "改善提案1（具体的に。このコンセプトのクラファン成功確率を上げるために最優先すべきこと）",
     "改善提案2",
     "改善提案3"
   ]
 }}
 
-すべて日本語で、実際のMakuakeページで使える具体的な文章・数値を書いてください。"""
+すべて日本語で、実際のクラファンページで使える具体的な文章・数値を書いてください。"""
 
     message = client.models.generate_content(
         model=GEMINI_MODEL,
@@ -1025,7 +1036,7 @@ def regenerate_with_checklist(
     diff_info = DIFFICULTY.get(diff, DIFFICULTY[1])
     title_main = product_data.get("title", "不明")
 
-    prompt = f"""あなたはMakuakeのトップクリエイターを支援するクラウドファンディング専門コピーライターです。
+    prompt = f"""あなたはクラウドファンディングのトップクリエイターを支援するクラウドファンディング専門コピーライターです。
 すべての出力は必ず日本語で書いてください。
 フレームワーク名・ツール名は文章内に一切記載しないこと。
 
@@ -1103,11 +1114,11 @@ Q9 オファー: {idea.get('q9_offer', '')}
     {{"item": "一言で伝わる価値提案の強さ", "status": "...", "how": "..."}},
     {{"item": "レビュー根拠の信頼性", "status": "...", "how": "..."}},
     {{"item": "製造・実現可能性", "status": "...", "how": "..."}},
-    {{"item": "Makuake向き価格帯", "status": "...", "how": "..."}},
+    {{"item": "クラファン向き価格帯", "status": "...", "how": "..."}},
     {{"item": "緊急性・限定性の設計可能性", "status": "...", "how": "..."}},
     {{"item": "競合との比較優位性", "status": "...", "how": "..."}},
     {{"item": "開発ストーリーの作りやすさ", "status": "...", "how": "..."}},
-    {{"item": "Makuake成功パターンとの整合性", "status": "...", "how": "..."}}
+    {{"item": "クラファン成功パターンとの整合性", "status": "...", "how": "..."}}
   ],
 
   "improvements": [
@@ -1289,7 +1300,7 @@ def generate_pdf_bytes(
     # 3. ページ構成（10セクション）
     sections_data = deep_dive.get("page_sections", [])
     if sections_data:
-        story += section("■ Makuakeページ構成（10セクション）")
+        story += section("■ クラファンページ構成（10セクション）")
         for sec in sections_data:
             sec_title = f"セクション{sec.get('section','')}：{sec.get('name','')}　— {sec.get('purpose','')}"
             story.append(Paragraph(sec_title, s_h2))

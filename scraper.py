@@ -909,6 +909,8 @@ def fetch_makuake_references(keyword: str = "", n: int = 2) -> list[dict]:
         try:
             time.sleep(random.uniform(0.8, 1.5))
             resp = session.get(url, headers=_headers(), timeout=20)
+            if resp.status_code >= 400:
+                continue
             soup = BeautifulSoup(resp.text, "lxml")
             title_el = soup.find("h1") or soup.find("title")
             title = title_el.get_text(strip=True)[:80] if title_el else ""

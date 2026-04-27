@@ -182,7 +182,13 @@ def _restore_draft(user: dict):
     st.session_state["selected_idea_id"] = draft.get("selected_idea_id")
     # JSON経由でキーが文字列化されるのを整数に戻す
     raw_cache = draft.get("deep_dive_cache", {})
-    st.session_state["deep_dive_cache"] = {int(k): v for k, v in raw_cache.items()}
+    restored_cache = {}
+    for k, v in raw_cache.items():
+        try:
+            restored_cache[int(k)] = v
+        except (ValueError, TypeError):
+            pass
+    st.session_state["deep_dive_cache"] = restored_cache
 
     stage = draft.get("stage", "ideas")
     # 分析中ステージは完了済みかチェックしてから復元
@@ -198,27 +204,31 @@ def _restore_draft(user: dict):
 
 
 def _render_pdf_button(product_data: dict, idea: dict, deep_dive: dict, key_suffix: str = ""):
-    """現在の deep_dive 内容で PDF を生成してダウンロードボタンを表示する"""
-    try:
-        pdf_bytes = generate_pdf_bytes(
-            product_data=product_data,
-            idea=idea,
-            deep_dive=deep_dive,
-            generated_at=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
-            model_name="Gemini 2.5 Flash",
-        )
-        asin = extract_asin(st.session_state.get("url", "unknown")) or "unknown"
-        st.download_button(
-            label="📄 PDFレポートをダウンロード（クラファン企画書）",
-            data=pdf_bytes,
-            file_name=f"cf_report_{asin}_idea{idea['id']:02d}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary",
-            key=f"pdf_dl_{key_suffix}",
-        )
-    except Exception as e:
-        st.warning(f"PDF生成に失敗しました: {e}")
+    """現在の deep_dive 内容で PDF を生成してダウンロードボタンを表示する（セッションキャッシュ済み）"""
+    idea_id = idea.get("id", 0)
+    pdf_cache = st.session_state.setdefault("pdf_cache", {})
+    if idea_id not in pdf_cache:
+        try:
+            pdf_cache[idea_id] = generate_pdf_bytes(
+                product_data=product_data,
+                idea=idea,
+                deep_dive=deep_dive,
+                generated_at=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
+                model_name="生成AI",
+            )
+        except Exception as e:
+            st.warning(f"PDF生成に失敗しました: {e}")
+            return
+    asin = extract_asin(st.session_state.get("url", "unknown")) or "unknown"
+    st.download_button(
+        label="📄 PDFレポートをダウンロード（クラファン企画書）",
+        data=pdf_cache[idea_id],
+        file_name=f"cf_report_{asin}_idea{idea_id:02d}.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+        type="primary",
+        key=f"pdf_dl_{key_suffix}",
+    )
 
 
 def _idea_card(idea: dict, col):
@@ -484,7 +494,7 @@ def _show_input():
 
     api_key_check = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key_check:
-        st.warning("⚠️ Gemini APIキーが未設定です。左メニューの「設定」から設定してください。")
+        st.warning("⚠️ APIキーが未設定です。左メニューの「設定」から設定してください。")
 
     if st.session_state.get("last_error"):
         st.error(f"前回のエラー: {st.session_state['last_error']}")
@@ -564,7 +574,7 @@ def _show_input():
         st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
         _mode_opts = [
             ("amazon", "🛒 Amazonのみ", "実レビューのみ収集・高速"),
-            ("gemini", "🔍 Gemini Web検索込み", "Amazon＋Web全体・大量収集・低速"),
+            ("gemini", "🔍 AI Web検索込み", "Amazon＋Web全体・大量収集・低速"),
         ]
         _mc = st.columns(2)
         for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
@@ -575,7 +585,7 @@ def _show_input():
                 st.rerun()
         review_mode = st.session_state.get("review_mode", "amazon")
         if review_mode == "gemini":
-            st.caption("※ GeminiがWeb全体（Amazon・楽天・価格.com・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
+            st.caption("※ AIがWeb全体（Amazon・ショッピングサイト・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
 
         if st.session_state.get("gen_btn_loading"):
             st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="gen_btn")
@@ -588,7 +598,7 @@ def _show_input():
         return
     st.session_state["gen_btn_loading"] = False
 
-    url = st.session_state.get("url_input_field", "")
+    url = st.session_state.get("url", "")
     if not url:
         st.error("Amazon商品URLを入力してください。")
         return
@@ -601,7 +611,7 @@ def _show_input():
 
     api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error("Gemini APIキーが未設定です。左メニューの「設定」から入力してください。")
+        st.error("APIキーが未設定です。左メニューの「設定」から入力してください。")
         return
 
     _ph = st.empty()
@@ -655,8 +665,12 @@ def _show_input():
 
 
 def _show_ideas():
-    product_data = st.session_state["product_data"]
-    ideas        = st.session_state["ideas"]
+    product_data = st.session_state.get("product_data")
+    ideas        = st.session_state.get("ideas", [])
+    if not product_data:
+        st.session_state["stage"] = "input"
+        st.rerun()
+        return
 
     st.title("💡 新商品アイデア 10選")
     if st.button("← 条件を変更する"):
@@ -672,7 +686,7 @@ def _show_ideas():
     gem_cnt      = product_data.get("gemini_review_count", 0)
 
     if gem_cnt:
-        review_breakdown = f"Amazon **{amz_cnt}件** + Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
+        review_breakdown = f"Amazon **{amz_cnt}件** + AI Web検索 **{gem_cnt}件** = 合計 **{main_rev_count}件**"
     else:
         review_breakdown = f"Amazon **{amz_cnt}件**"
 
@@ -875,15 +889,9 @@ def _show_analysis():
     st.markdown("---")
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.session_state.get("cf_btn_loading"):
-            st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="cf_gen_btn")
-            st.session_state["cf_btn_loading"] = False
+        if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary", key="cf_gen_btn"):
             st.session_state["stage"] = "deepdive"
             st.rerun()
-        else:
-            if st.button("🚀 クラファンページを生成する", use_container_width=True, type="primary", key="cf_gen_btn"):
-                st.session_state["cf_btn_loading"] = True
-                st.rerun()
 
 
 def _show_deepdive():
@@ -962,7 +970,7 @@ def _show_deepdive():
                     st.error(f"再生成に失敗しました: {e}")
 
     with tab_pages:
-        st.subheader("📄 Makuakeページ構成（10セクション）")
+        st.subheader("📄 クラファンページ構成（10セクション）")
         _section_icons = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
         sections = deep_dive.get("page_sections", [])
         if sections:
@@ -1014,6 +1022,7 @@ def _show_deepdive():
                 unsafe_allow_html=True,
             )
 
+    needs_work = []
     with tab_check:
         checklist = deep_dive.get("checklist", [])
         if checklist:
@@ -1301,7 +1310,7 @@ def page_terms():
 - 生成内容の正確性・完全性は保証されません。
 
 ### 第5条（外部サービスの利用）
-本サービスはGemini API（Google）を使用しています。外部APIの利用にあたっては各サービスの利用規約が適用されます。
+本サービスは外部AI APIを使用しています。外部APIの利用にあたっては各サービスの利用規約が適用されます。
 
 ### 第6条（プライバシー）
 登録されたメールアドレス・氏名・電話番号は、サービス運営および重要なご連絡にのみ使用します。第三者への提供は行いません。
@@ -1415,7 +1424,7 @@ def page_admin():
                 auth.set_setting("smtp_host", smtp_host)
                 auth.set_setting("smtp_port", str(smtp_port))
                 auth.set_setting("smtp_user", smtp_user)
-                auth.set_setting("smtp_pass", smtp_pass)
+                auth.set_encrypted_setting("smtp_pass", smtp_pass)
                 auth.set_setting("smtp_from", smtp_from or smtp_user)
                 st.success("✅ SMTP設定を保存しました。")
 

@@ -65,9 +65,10 @@ def init_db():
         )
     """)
     conn.commit()
-    # 期限切れトークンを掃除
+    # 期限切れトークン・セッションを掃除
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     c.execute("DELETE FROM password_resets WHERE expires_at < ?", (now,))
+    c.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
     conn.commit()
     conn.close()
 
@@ -343,6 +344,7 @@ def apply_reset_password(token: str, new_password: str) -> bool:
     )
     conn.execute("DELETE FROM password_resets WHERE token=?", (token,))
     conn.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+    conn.execute("DELETE FROM draft_states WHERE user_id=?", (user["id"],))
     conn.commit()
     conn.close()
     return True
@@ -438,12 +440,38 @@ def get_draft_state(user_id: int) -> dict | None:
 # ─────────────────────────────────────────────
 # メール送信
 # ─────────────────────────────────────────────
+def get_encrypted_setting(key: str, default: str = "") -> str:
+    """暗号化されて保存された設定値を復号して返す。平文フォールバックあり（既存データ互換）。"""
+    f = _get_fernet()
+    raw = get_setting(key, "")
+    if not raw:
+        return default
+    if not f:
+        return raw
+    try:
+        return f.decrypt(raw.encode()).decode()
+    except Exception:
+        return raw
+
+
+def set_encrypted_setting(key: str, value: str):
+    """設定値を暗号化して保存する。"""
+    f = _get_fernet()
+    if f and value:
+        set_setting(key, f.encrypt(value.encode()).decode())
+    else:
+        set_setting(key, value)
+
+
 def _get_smtp_config() -> dict:
     """env → DBの優先順でSMTP設定を取得する。"""
     host = os.getenv("SMTP_HOST") or get_setting("smtp_host")
-    port = int(os.getenv("SMTP_PORT") or get_setting("smtp_port") or "587")
+    try:
+        port = int(os.getenv("SMTP_PORT") or get_setting("smtp_port") or "587")
+    except ValueError:
+        port = 587
     user = os.getenv("SMTP_USER") or get_setting("smtp_user")
-    pw   = os.getenv("SMTP_PASS") or get_setting("smtp_pass")
+    pw   = os.getenv("SMTP_PASS") or get_encrypted_setting("smtp_pass")
     frm  = os.getenv("SMTP_FROM") or get_setting("smtp_from") or user
     return {"host": host, "port": port, "user": user, "pass": pw, "from": frm}
 
