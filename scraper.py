@@ -125,9 +125,9 @@ def _is_blocked(text: str) -> bool:
 def _warm_session(domain: str, session: requests.Session) -> None:
     """セッションウォーミング: トップページを踏んでCookieを取得する"""
     try:
-        time.sleep(random.uniform(1.0, 2.0))
-        session.get(domain, headers=_headers(), timeout=20)
-        time.sleep(random.uniform(0.8, 1.5))
+        time.sleep(random.uniform(0.5, 1.0))
+        session.get(domain, headers=_headers(), timeout=10)
+        time.sleep(random.uniform(0.5, 1.0))
     except Exception:
         pass
 
@@ -136,16 +136,16 @@ def _get_with_retry(
     url: str,
     session: requests.Session,
     referer: str = "",
-    max_retries: int = 2,
+    max_retries: int = 1,
 ) -> "requests.Response | None":
     """ブロック検知時に待機してリトライする"""
     for attempt in range(max_retries + 1):
         if attempt > 0:
-            wait = random.uniform(5.0, 10.0) * attempt
+            wait = random.uniform(3.0, 5.0) * attempt
             print(f"[scraper] ブロック検知 → {wait:.1f}秒待機してリトライ ({attempt}/{max_retries})")
             time.sleep(wait)
         try:
-            resp = session.get(url, headers=_headers(referer), timeout=30)
+            resp = session.get(url, headers=_headers(referer), timeout=15)
             resp.raise_for_status()
             if not _is_blocked(resp.text):
                 return resp
@@ -200,8 +200,8 @@ def scrape_amazon_search(
 # 商品ページ取得
 # ─────────────────────────────────────────────
 def scrape_product_page(url: str, session: requests.Session) -> dict:
-    time.sleep(random.uniform(1.5, 3.0))
-    resp = _get_with_retry(url, session, referer="https://www.amazon.co.jp/", max_retries=2)
+    time.sleep(random.uniform(0.5, 1.0))
+    resp = _get_with_retry(url, session, referer="https://www.amazon.co.jp/", max_retries=1)
     if resp is None:
         raise RuntimeError(
             "Amazonがアクセスをブロックしています。"
@@ -521,7 +521,15 @@ def scrape_all(
 
     # ── 対象商品のページ情報（常に取得）──────────────
     _prog("対象商品のページを解析中...", 5)
-    product = scrape_product_page(url, session)
+    try:
+        product = scrape_product_page(url, session)
+        amazon_accessible = True
+        _fallback_reviews = []
+    except RuntimeError:
+        _prog("Amazon直接取得不可 → AI検索で商品情報を取得中...", 8)
+        product = fetch_product_info_via_gemini(url, asin, api_key=api_key)
+        _fallback_reviews = product.pop("_fallback_reviews", [])
+        amazon_accessible = False
     product["asin"] = asin
     product["include_similar"] = n_similar > 0
     product["mode"] = "with_similar" if n_similar > 0 else "main_only"
@@ -531,15 +539,24 @@ def scrape_all(
         # ────────────────────────────────────────────
         # チェックなし: Amazon(8件) + Gemini検索(100件)
         # ────────────────────────────────────────────
-        _prog("対象商品のレビューを収集中（Amazon）...", 10)
-        amz_reviews = collect_reviews(asin, domain, session)
-        if use_gemini_reviews:
-            _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 25)
-            gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
+        if amazon_accessible:
+            _prog("対象商品のレビューを収集中（Amazon）...", 10)
+            amz_reviews = collect_reviews(asin, domain, session)
+        else:
+            amz_reviews = []
+        if use_gemini_reviews or not amazon_accessible:
+            _prog(f"Amazon {len(amz_reviews)}件 → AI Web検索でレビューを収集中...", 25)
+            if _fallback_reviews:
+                # fallback reviews already collected in fetch_product_info_via_gemini
+                gemini_reviews = _fallback_reviews + collect_reviews_via_gemini_search(
+                    product["title"], api_key=api_key
+                )
+            else:
+                gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
             product["gemini_review_count"] = len(gemini_reviews)
         else:
-            gemini_reviews = []
-            product["gemini_review_count"] = 0
+            gemini_reviews = _fallback_reviews  # use fallback reviews even in amazon-only mode
+            product["gemini_review_count"] = len(gemini_reviews)
         main_reviews = amz_reviews + gemini_reviews
         product["amazon_review_count"] = len(amz_reviews)
         _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 75)
@@ -562,32 +579,45 @@ def scrape_all(
         # ────────────────────────────────────────────
         # 類似品モード: Amazon(8件) + Gemini検索 + 類似品n_similar商品
         # ────────────────────────────────────────────
-        _prog("対象商品のレビューを収集中（Amazon）...", 5)
-        amz_reviews = collect_reviews(asin, domain, session)
-        if use_gemini_reviews:
-            _prog(f"Amazon {len(amz_reviews)}件 → Gemini検索でWeb収集中...", 8)
-            gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
+        if amazon_accessible:
+            _prog("対象商品のレビューを収集中（Amazon）...", 5)
+            amz_reviews = collect_reviews(asin, domain, session)
+        else:
+            amz_reviews = []
+        if use_gemini_reviews or not amazon_accessible:
+            _prog(f"Amazon {len(amz_reviews)}件 → AI Web検索でレビューを収集中...", 8)
+            if _fallback_reviews:
+                gemini_reviews = _fallback_reviews + collect_reviews_via_gemini_search(
+                    product["title"], api_key=api_key
+                )
+            else:
+                gemini_reviews = collect_reviews_via_gemini_search(product["title"], api_key=api_key)
             product["gemini_review_count"] = len(gemini_reviews)
         else:
-            gemini_reviews = []
-            product["gemini_review_count"] = 0
+            gemini_reviews = _fallback_reviews
+            product["gemini_review_count"] = len(gemini_reviews)
         main_reviews = amz_reviews + gemini_reviews
         product["reviews"] = main_reviews
         product["amazon_review_count"] = len(amz_reviews)
         _prog(f"対象商品レビュー {len(main_reviews)}件 取得完了", 13)
 
-        # Amazon検索で類似品URLを取得（実在するURL、ハルシネーションなし）
-        category_words = [
-            t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', product["title"])
-            if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
-        ][:3]
-        search_keyword = " ".join(category_words) if category_words else product["title"][:20]
-        _prog(f"Amazon検索「{search_keyword}」で類似品を収集中...", 14)
-        related = scrape_amazon_search(
-            search_keyword, domain, session,
-            max_urls=min(n_similar * 2, 40),  # スキップ・失敗分の予備を多めに確保
-            exclude_asins={asin},
-        )
+        if not amazon_accessible:
+            # Amazon未アクセス: 類似品収集はスキップ
+            _prog("Amazon未アクセスのため類似品収集をスキップ", 15)
+            related = []
+        else:
+            # Amazon検索で類似品URLを取得（実在するURL、ハルシネーションなし）
+            category_words = [
+                t for t in re.split(r'[\s\[\]【】（）()「」、。・/\-_]+', product["title"])
+                if len(t) >= 3 and re.search(r'[ぁ-んァ-ン一-龥]', t)
+            ][:3]
+            search_keyword = " ".join(category_words) if category_words else product["title"][:20]
+            _prog(f"Amazon検索「{search_keyword}」で類似品を収集中...", 14)
+            related = scrape_amazon_search(
+                search_keyword, domain, session,
+                max_urls=min(n_similar * 2, 40),
+                exclude_asins={asin},
+            )
         _prog(f"類似品候補 {len(related)}商品 取得", 15)
 
         targets = related  # n_similar 件集まるまで全候補を試す
@@ -670,6 +700,87 @@ def scrape_all(
 # ─────────────────────────────────────────────
 # Gemini検索グラウンディングによるレビュー収集 / 類似品検索
 # ─────────────────────────────────────────────
+def fetch_product_info_via_gemini(
+    url: str,
+    asin: str,
+    api_key: str | None = None,
+) -> dict:
+    """
+    AmazonがブロックされたときにGemini検索でレビューを収集し、
+    レビューテキストから商品名を抽出するフォールバック。
+    Returns dict with keys: url, title, description, bullets, total_reviews, related_urls
+    """
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+    except ImportError:
+        return {"url": url, "title": f"Amazon商品 ({asin})", "description": "", "bullets": [], "total_reviews": 0, "related_urls": []}
+
+    from dotenv import load_dotenv
+    load_dotenv()
+    _api_key = api_key or os.getenv("GEMINI_API_KEY")
+    if not _api_key:
+        return {"url": url, "title": f"Amazon商品 ({asin})", "description": "", "bullets": [], "total_reviews": 0, "related_urls": []}
+
+    client = genai.Client(api_key=_api_key)
+    _SEARCH_CONFIG = gtypes.GenerateContentConfig(
+        tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+        thinking_config=gtypes.ThinkingConfig(thinking_budget=0),
+    )
+
+    # Step 1: レビューを収集（URLベースの検索）
+    review_prompt = (
+        f'Search for user reviews of the Amazon Japan product at this URL: {url} '
+        f'(ASIN: {asin}). Collect 10+ Japanese user reviews from Amazon, '
+        f'shopping sites, and blogs. Format: one review per line starting with "・"'
+    )
+    title = f"Amazon商品 ({asin})"
+    description = ""
+    bullets = []
+    review_texts = []
+
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=review_prompt,
+            config=_SEARCH_CONFIG,
+        )
+        review_raw = (resp.text or "").strip()
+        review_texts = _parse_review_lines(review_raw)
+        print(f"[scraper] Gemini URLベース検索: {len(review_texts)}件のレビュー取得")
+    except Exception as e:
+        print(f"[scraper] Gemini review search error: {e}")
+
+    # Step 2: レビューから商品名を抽出（検索グラウンディングなし）
+    if review_texts:
+        sample = "\n".join(review_texts[:5])
+        extract_prompt = (
+            f"以下はAmazon商品（URL: {url}, ASIN: {asin}）のユーザーレビューです。\n"
+            f"レビューの内容から、この商品の日本語商品名を推測してください。\n"
+            f"レビュー:\n{sample}\n\n"
+            f"商品名（25文字以内）:"
+        )
+        try:
+            resp2 = client.models.generate_content(model="gemini-2.5-flash", contents=extract_prompt)
+            extracted = (resp2.text or "").strip()
+            if extracted and len(extracted) < 80 and "不明" not in extracted and "わかり" not in extracted:
+                title = extracted.split("\n")[0].strip()[:60]
+        except Exception as e:
+            print(f"[scraper] Gemini title extraction error: {e}")
+
+    print(f"[scraper] Geminiフォールバック完了: title={title[:30]}, reviews={len(review_texts)}")
+    reviews = [{"star": 0, "text": t} for t in review_texts]
+    return {
+        "url": url,
+        "title": title,
+        "description": description,
+        "bullets": bullets,
+        "total_reviews": 0,
+        "related_urls": [],
+        "_fallback_reviews": reviews,
+    }
+
+
 def find_similar_products_via_gemini(
     title: str,
     domain: str = "https://www.amazon.co.jp",
@@ -732,9 +843,10 @@ https://www.amazon.co.jp/dp/ASIN | 商品名
                 contents=prompt,
                 config=gtypes.GenerateContentConfig(
                     tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                    thinking_config=gtypes.ThinkingConfig(thinking_budget=0),
                 ),
             )
-            text = resp.text.strip()
+            text = (resp.text or "").strip()
         except Exception as e:
             print(f"[scraper] Gemini similar search error (attempt {attempt+1}): {e}", flush=True)
             raise  # 上位のtry-exceptに伝播させてprogress経由で表示
@@ -815,16 +927,20 @@ def collect_reviews_via_gemini_search(
         return []
     client = genai.Client(api_key=_api_key)
 
+    _SEARCH_CONFIG = gtypes.GenerateContentConfig(
+        tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+        thinking_config=gtypes.ThinkingConfig(thinking_budget=0),
+    )
+
     def _call(prompt: str) -> list[str]:
         try:
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
-                config=gtypes.GenerateContentConfig(
-                    tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
-                ),
+                config=_SEARCH_CONFIG,
             )
-            return _parse_review_lines(resp.text.strip())
+            text = resp.text or ""
+            return _parse_review_lines(text.strip())
         except Exception as e:
             print(f"[scraper] Gemini search error: {e}")
             return []
