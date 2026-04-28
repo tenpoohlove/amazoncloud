@@ -42,15 +42,14 @@ def _cookie_get(key: str) -> str | None:
 
 
 def _cookie_set(key: str, value: str, cookie_key: str = ""):
-    """JS でブラウザに cookie をセットしてページをフルリロード。"""
+    """JS でブラウザに cookie をセット（リロードなし）。"""
     max_age = 30 * 24 * 3600
     safe_val = value.replace("\\", "\\\\").replace("'", "\\'")
     _stc.html(
         f"<script>"
-        f"document.cookie='{key}={safe_val};max-age={max_age};path=/;SameSite=Strict';"
-        f"window.top.location.reload();"
+        f"document.cookie='{key}={safe_val};max-age={max_age};path=/;SameSite=Lax';"
         f"</script>",
-        height=1,
+        height=0,
     )
 
 
