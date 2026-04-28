@@ -12,11 +12,15 @@ import bcrypt
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-
-
 def _get_conn():
-    return psycopg2.connect(DATABASE_URL)
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        try:
+            import streamlit as st
+            url = st.secrets.get("DATABASE_URL", "")
+        except Exception:
+            pass
+    return psycopg2.connect(url)
 
 
 def _cur(conn):
