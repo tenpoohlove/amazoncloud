@@ -594,6 +594,7 @@ def _show_input():
             st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="gen_btn")
         else:
             if st.button("🔍 アイデアを生成する", use_container_width=True, type="primary", key="gen_btn"):
+                st.session_state["url"] = st.session_state.get("url_input_field", "")
                 st.session_state["gen_btn_loading"] = True
                 st.rerun()
 
