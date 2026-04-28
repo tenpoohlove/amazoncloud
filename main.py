@@ -346,8 +346,12 @@ def show_auth():
                         st.error(err)
                     else:
                         token = auth.create_session(user["id"], days=30)
-                        _cookie_set("st_session", token)
-                        st.stop()
+                        st.session_state["user"] = dict(user)
+                        st.session_state["_session_token"] = token
+                        saved_key = auth.get_user_api_key(user["id"])
+                        if saved_key:
+                            st.session_state["api_key"] = saved_key
+                        st.rerun()
 
             st.markdown("---")
             st.markdown("##### パスワードをお忘れですか？")
@@ -1466,6 +1470,10 @@ if reset_token:
     st.stop()
 
 user = st.session_state.get("user")
+
+# ログイン直後のクッキー書き込み（st.rerun()後の最初のレンダリングで実行）
+if "_session_token" in st.session_state:
+    _cookie_set("st_session", st.session_state.pop("_session_token"))
 
 # Cookieからの自動ログイン
 if user is None:
