@@ -20,6 +20,9 @@ def _get_conn():
             url = st.secrets.get("DATABASE_URL", "")
         except Exception:
             pass
+    # channel_binding は古い psycopg2 では未対応のため除去
+    import re
+    url = re.sub(r"[&?]channel_binding=[^&]*", "", url)
     return psycopg2.connect(url)
 
 
