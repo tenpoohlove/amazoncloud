@@ -368,7 +368,7 @@ def show_auth():
                     if not ok:
                         st.error(token_or_err)
                     else:
-                        base_url = os.getenv("BASE_URL", "http://localhost:8501")
+                        base_url = os.getenv("BASE_URL") or auth.get_setting("base_url") or "http://localhost:8501"
                         conn = auth._get_conn()
                         row = conn.execute(
                             "SELECT name FROM users WHERE email=?",
@@ -420,7 +420,7 @@ def show_auth():
                     if not ok:
                         st.error(token_or_err)
                     else:
-                        base_url = os.getenv("BASE_URL", "http://localhost:8501")
+                        base_url = os.getenv("BASE_URL") or auth.get_setting("base_url") or "http://localhost:8501"
                         sent, _ = auth.send_verification_email(
                             r_email, r_name, token_or_err, base_url
                         )
