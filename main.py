@@ -497,7 +497,7 @@ def _show_input():
 
     api_key_check = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key_check:
-        st.warning("⚠️ APIキーが未設定です。左メニューの「設定」から設定してください。")
+        st.warning("⚠️ APIキーが未設定です。上の「設定」から設定してください。")
 
     if st.session_state.get("last_error"):
         st.error(f"前回のエラー: {st.session_state['last_error']}")
@@ -614,7 +614,7 @@ def _show_input():
 
     api_key = st.session_state.get("api_key") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error("APIキーが未設定です。左メニューの「設定」から入力してください。")
+        st.error("APIキーが未設定です。上の「設定」から入力してください。")
         return
 
     _ph = st.empty()
