@@ -502,15 +502,15 @@ def set_encrypted_setting(key: str, value: str):
 
 
 def _get_smtp_config() -> dict:
-    """env → DBの優先順でSMTP設定を取得する。"""
-    host = os.getenv("SMTP_HOST") or get_setting("smtp_host")
+    """DB → envの優先順でSMTP設定を取得する（管理パネルでの設定が優先）。"""
+    host = get_setting("smtp_host") or os.getenv("SMTP_HOST", "")
     try:
-        port = int(os.getenv("SMTP_PORT") or get_setting("smtp_port") or "587")
+        port = int(get_setting("smtp_port") or os.getenv("SMTP_PORT", "587"))
     except ValueError:
         port = 587
-    user = os.getenv("SMTP_USER") or get_setting("smtp_user")
-    pw   = os.getenv("SMTP_PASS") or get_encrypted_setting("smtp_pass")
-    frm  = os.getenv("SMTP_FROM") or get_setting("smtp_from") or user
+    user = get_setting("smtp_user") or os.getenv("SMTP_USER", "")
+    pw   = get_encrypted_setting("smtp_pass") or os.getenv("SMTP_PASS", "")
+    frm  = get_setting("smtp_from") or os.getenv("SMTP_FROM", "") or user
     return {"host": host, "port": port, "user": user, "pass": pw, "from": frm}
 
 
