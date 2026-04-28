@@ -8,3 +8,4 @@ reportlab>=4.0.0
 bcrypt>=4.0.0
 cryptography>=41.0.0
 extra-streamlit-components>=0.1.60
+psycopg2-binary>=2.9.0

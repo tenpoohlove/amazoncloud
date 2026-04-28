@@ -1,27 +1,38 @@
-"""auth.py: ユーザー認証・管理システム（SQLite + bcrypt + Fernet暗号化）"""
+"""auth.py: ユーザー認証・管理システム（PostgreSQL + bcrypt + Fernet暗号化）"""
 
 import json
 import os
 import secrets
 import smtplib
-import sqlite3
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import bcrypt
+import psycopg2
+import psycopg2.extras
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "users.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+
+def _get_conn():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def _cur(conn):
+    """dict-like rows を返すカーソル。"""
+    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
 
 # ─────────────────────────────────────────────
 # DB初期化
 # ─────────────────────────────────────────────
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             phone TEXT DEFAULT '',
             name TEXT NOT NULL,
@@ -56,7 +67,7 @@ def init_db():
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS idea_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             product_url TEXT NOT NULL,
             product_title TEXT NOT NULL,
@@ -64,19 +75,19 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS draft_states (
+            user_id INTEGER PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
-    # 期限切れトークン・セッションを掃除
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("DELETE FROM password_resets WHERE expires_at < ?", (now,))
-    c.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+    c.execute("DELETE FROM password_resets WHERE expires_at < %s", (now,))
+    c.execute("DELETE FROM sessions WHERE expires_at < %s", (now,))
     conn.commit()
     conn.close()
-
-
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 # ─────────────────────────────────────────────
@@ -84,15 +95,19 @@ def _get_conn():
 # ─────────────────────────────────────────────
 def get_setting(key: str, default: str = "") -> str:
     conn = _get_conn()
-    row = conn.execute("SELECT value FROM admin_settings WHERE key=?", (key,)).fetchone()
+    cur = _cur(conn)
+    cur.execute("SELECT value FROM admin_settings WHERE key=%s", (key,))
+    row = cur.fetchone()
     conn.close()
     return row["value"] if row else default
 
 
 def set_setting(key: str, value: str):
     conn = _get_conn()
-    conn.execute(
-        "INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)",
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO admin_settings (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
         (key, value),
     )
     conn.commit()
@@ -151,13 +166,15 @@ def create_user(
     """ユーザー作成。(success: bool, token_or_error: str) を返す。"""
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     token = secrets.token_urlsafe(32)
+    conn = None
     try:
         conn = _get_conn()
-        conn.execute(
+        cur = conn.cursor()
+        cur.execute(
             """INSERT INTO users
                (email, phone, name, password_hash, is_verified, newsletter_consent,
                 verification_token, created_at)
-               VALUES (?, ?, ?, ?, 0, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, 0, %s, %s, %s)""",
             (
                 email.lower().strip(),
                 phone.strip(),
@@ -169,23 +186,31 @@ def create_user(
             ),
         )
         conn.commit()
-        conn.close()
         return True, token
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        if conn:
+            conn.rollback()
         return False, "このメールアドレスは既に登録されています"
     except Exception as e:
+        if conn:
+            conn.rollback()
         return False, str(e)
+    finally:
+        if conn:
+            conn.close()
 
 
 def verify_email_token(token: str) -> bool:
     conn = _get_conn()
-    row = conn.execute(
-        "SELECT id FROM users WHERE verification_token=? AND is_verified=0",
+    cur = _cur(conn)
+    cur.execute(
+        "SELECT id FROM users WHERE verification_token=%s AND is_verified=0",
         (token,),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     if row:
-        conn.execute(
-            "UPDATE users SET is_verified=1, verification_token='' WHERE id=?",
+        cur.execute(
+            "UPDATE users SET is_verified=1, verification_token='' WHERE id=%s",
             (row["id"],),
         )
         conn.commit()
@@ -197,9 +222,9 @@ def verify_email_token(token: str) -> bool:
 
 def authenticate(email: str, password: str) -> tuple:
     conn = _get_conn()
-    row = conn.execute(
-        "SELECT * FROM users WHERE email=?", (email.lower().strip(),)
-    ).fetchone()
+    cur = _cur(conn)
+    cur.execute("SELECT * FROM users WHERE email=%s", (email.lower().strip(),))
+    row = cur.fetchone()
     conn.close()
     if not row:
         return None, "メールアドレスまたはパスワードが違います"
@@ -213,14 +238,17 @@ def authenticate(email: str, password: str) -> tuple:
 def update_api_key(user_id: int, api_key: str):
     encrypted = encrypt_api_key(api_key)
     conn = _get_conn()
-    conn.execute("UPDATE users SET api_key=? WHERE id=?", (encrypted, user_id))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET api_key=%s WHERE id=%s", (encrypted, user_id))
     conn.commit()
     conn.close()
 
 
 def get_user_api_key(user_id: int) -> str:
     conn = _get_conn()
-    row = conn.execute("SELECT api_key FROM users WHERE id=?", (user_id,)).fetchone()
+    cur = _cur(conn)
+    cur.execute("SELECT api_key FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
     conn.close()
     if not row:
         return ""
@@ -229,28 +257,32 @@ def get_user_api_key(user_id: int) -> str:
 
 def get_all_users() -> list:
     conn = _get_conn()
-    rows = conn.execute(
+    cur = _cur(conn)
+    cur.execute(
         """SELECT id, email, phone, name, is_verified, is_admin,
                   newsletter_consent, created_at
            FROM users ORDER BY created_at DESC"""
-    ).fetchall()
+    )
+    rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def set_user_verified(user_id: int, verified: bool):
     conn = _get_conn()
-    conn.execute("UPDATE users SET is_verified=? WHERE id=?", (1 if verified else 0, user_id))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_verified=%s WHERE id=%s", (1 if verified else 0, user_id))
     conn.commit()
     conn.close()
 
 
 def delete_user(user_id: int):
     conn = _get_conn()
-    conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
-    conn.execute("DELETE FROM password_resets WHERE user_id=?", (user_id,))
-    conn.execute("DELETE FROM idea_history WHERE user_id=?", (user_id,))
-    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+    cur.execute("DELETE FROM password_resets WHERE user_id=%s", (user_id,))
+    cur.execute("DELETE FROM idea_history WHERE user_id=%s", (user_id,))
+    cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
     conn.commit()
     conn.close()
 
@@ -262,8 +294,10 @@ def create_session(user_id: int, days: int = 30) -> str:
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     conn = _get_conn()
-    conn.execute(
-        "INSERT OR REPLACE INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO sessions (token, user_id, expires_at) VALUES (%s, %s, %s) "
+        "ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at",
         (token, user_id, expires_at),
     )
     conn.commit()
@@ -274,19 +308,22 @@ def create_session(user_id: int, days: int = 30) -> str:
 def validate_session(token: str) -> dict | None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = _get_conn()
-    row = conn.execute(
+    cur = _cur(conn)
+    cur.execute(
         """SELECT u.* FROM users u
            JOIN sessions s ON u.id = s.user_id
-           WHERE s.token = ? AND s.expires_at > ?""",
+           WHERE s.token = %s AND s.expires_at > %s""",
         (token, now),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     conn.close()
     return dict(row) if row else None
 
 
 def delete_session(token: str):
     conn = _get_conn()
-    conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sessions WHERE token = %s", (token,))
     conn.commit()
     conn.close()
 
@@ -297,22 +334,22 @@ def delete_session(token: str):
 def create_reset_token(email: str) -> tuple:
     """パスワードリセットトークン発行。(True, token) または (False, error)。"""
     conn = _get_conn()
-    row = conn.execute(
-        "SELECT id, name FROM users WHERE email=? AND is_verified=1",
+    cur = _cur(conn)
+    cur.execute(
+        "SELECT id, name FROM users WHERE email=%s AND is_verified=1",
         (email.lower().strip(),),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     conn.close()
     if not row:
-        # セキュリティ上、存在しないメールも同じ文言にする
         return False, "このメールアドレスは登録されていないか、未認証です"
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     conn = _get_conn()
-    conn.execute(
-        "DELETE FROM password_resets WHERE user_id=?", (row["id"],)
-    )
-    conn.execute(
-        "INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)",
+    cur = conn.cursor()
+    cur.execute("DELETE FROM password_resets WHERE user_id=%s", (row["id"],))
+    cur.execute(
+        "INSERT INTO password_resets (token, user_id, expires_at) VALUES (%s, %s, %s)",
         (token, row["id"], expires_at),
     )
     conn.commit()
@@ -323,12 +360,14 @@ def create_reset_token(email: str) -> tuple:
 def validate_reset_token(token: str) -> dict | None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = _get_conn()
-    row = conn.execute(
+    cur = _cur(conn)
+    cur.execute(
         """SELECT u.id, u.name, u.email FROM users u
            JOIN password_resets r ON u.id = r.user_id
-           WHERE r.token = ? AND r.expires_at > ?""",
+           WHERE r.token = %s AND r.expires_at > %s""",
         (token, now),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -339,12 +378,11 @@ def apply_reset_password(token: str, new_password: str) -> bool:
         return False
     password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
     conn = _get_conn()
-    conn.execute(
-        "UPDATE users SET password_hash=? WHERE id=?", (password_hash, user["id"])
-    )
-    conn.execute("DELETE FROM password_resets WHERE token=?", (token,))
-    conn.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
-    conn.execute("DELETE FROM draft_states WHERE user_id=?", (user["id"],))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (password_hash, user["id"]))
+    cur.execute("DELETE FROM password_resets WHERE token=%s", (token,))
+    cur.execute("DELETE FROM sessions WHERE user_id=%s", (user["id"],))
+    cur.execute("DELETE FROM draft_states WHERE user_id=%s", (user["id"],))
     conn.commit()
     conn.close()
     return True
@@ -355,9 +393,10 @@ def apply_reset_password(token: str, new_password: str) -> bool:
 # ─────────────────────────────────────────────
 def save_idea_history(user_id: int, product_url: str, product_title: str, ideas: list):
     conn = _get_conn()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """INSERT INTO idea_history (user_id, product_url, product_title, ideas_json, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s)""",
         (user_id, product_url, product_title, json.dumps(ideas, ensure_ascii=False),
          datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     )
@@ -367,12 +406,14 @@ def save_idea_history(user_id: int, product_url: str, product_title: str, ideas:
 
 def get_idea_history(user_id: int, limit: int = 30) -> list:
     conn = _get_conn()
-    rows = conn.execute(
+    cur = _cur(conn)
+    cur.execute(
         """SELECT id, product_url, product_title, ideas_json, created_at
-           FROM idea_history WHERE user_id=?
-           ORDER BY created_at DESC LIMIT ?""",
+           FROM idea_history WHERE user_id=%s
+           ORDER BY created_at DESC LIMIT %s""",
         (user_id, limit),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
     conn.close()
     result = []
     for r in rows:
@@ -387,8 +428,9 @@ def get_idea_history(user_id: int, limit: int = 30) -> list:
 
 def delete_history_item(history_id: int, user_id: int):
     conn = _get_conn()
-    conn.execute(
-        "DELETE FROM idea_history WHERE id=? AND user_id=?", (history_id, user_id)
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM idea_history WHERE id=%s AND user_id=%s", (history_id, user_id)
     )
     conn.commit()
     conn.close()
@@ -397,26 +439,16 @@ def delete_history_item(history_id: int, user_id: int):
 # ─────────────────────────────────────────────
 # ドラフト状態（ページリフレッシュ復元用）
 # ─────────────────────────────────────────────
-def _ensure_draft_table(conn):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS draft_states (
-            user_id INTEGER PRIMARY KEY,
-            state_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-
-
 def save_draft_state(user_id: int, state: dict) -> None:
     conn = _get_conn()
-    _ensure_draft_table(conn)
-    conn.execute(
-        """INSERT INTO draft_states (user_id, state_json, updated_at)
-           VALUES (?, ?, datetime('now'))
-           ON CONFLICT(user_id) DO UPDATE SET
-               state_json = excluded.state_json,
-               updated_at = excluded.updated_at""",
-        (user_id, json.dumps(state, ensure_ascii=False)),
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO draft_states (user_id, state_json, updated_at) VALUES (%s, %s, %s)
+           ON CONFLICT (user_id) DO UPDATE SET
+               state_json = EXCLUDED.state_json,
+               updated_at = EXCLUDED.updated_at""",
+        (user_id, json.dumps(state, ensure_ascii=False),
+         datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     )
     conn.commit()
     conn.close()
@@ -424,10 +456,9 @@ def save_draft_state(user_id: int, state: dict) -> None:
 
 def get_draft_state(user_id: int) -> dict | None:
     conn = _get_conn()
-    _ensure_draft_table(conn)
-    row = conn.execute(
-        "SELECT state_json FROM draft_states WHERE user_id=?", (user_id,)
-    ).fetchone()
+    cur = _cur(conn)
+    cur.execute("SELECT state_json FROM draft_states WHERE user_id=%s", (user_id,))
+    row = cur.fetchone()
     conn.close()
     if not row:
         return None
