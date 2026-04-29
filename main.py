@@ -42,28 +42,19 @@ def _cookie_get(key: str) -> str | None:
 
 
 def _cookie_set(key: str, value: str, cookie_key: str = ""):
-    """JS でブラウザに cookie をセット（リロードなし）。"""
     max_age = 30 * 24 * 3600
     safe_val = value.replace("\\", "\\\\").replace("'", "\\'")
     cookie_str = f"{key}={safe_val};max-age={max_age};path=/;SameSite=Lax"
-    _stc.html(
-        f"<script>"
-        f"try{{window.top.document.cookie='{cookie_str}';}}"
-        f"catch(e){{try{{window.parent.document.cookie='{cookie_str}';}}"
-        f"catch(e2){{document.cookie='{cookie_str}';}}}}"
-        f"</script>",
-        height=1,
+    st.markdown(
+        f'<img src="x" style="display:none" onerror="document.cookie=\'{cookie_str}\'">',
+        unsafe_allow_html=True,
     )
 
 
 def _cookie_delete(key: str, cookie_key: str = ""):
-    """JS でブラウザの cookie を削除してページをフルリロード。"""
-    _stc.html(
-        f"<script>"
-        f"document.cookie='{key}=;max-age=0;path=/;SameSite=Strict';"
-        f"window.top.location.reload();"
-        f"</script>",
-        height=1,
+    st.markdown(
+        f'<img src="x" style="display:none" onerror="document.cookie=\'st_session=;max-age=0;path=/;SameSite=Lax\';window.top.location.reload();">',
+        unsafe_allow_html=True,
     )
 
 
