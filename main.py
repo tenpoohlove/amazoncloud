@@ -26,24 +26,19 @@ load_dotenv()
 auth.init_db()
 
 # ─────────────────────────────────────────────
-# Cookie manager
-# st.context.cookies は WebSocket 接続確立時のHTTPヘッダーを読む。
-# st.rerun() は既存 WebSocket を使うため新Cookie は届かない。
-# → JS で cookie を書いてフルページリロードするのが唯一の確実な方法。
-_SESSION_PARAM = "s"
+# Cookie manager (streamlit-cookies-controller)
+from streamlit_cookies_controller import CookieController as _CC
 
+_cookie_ctrl = _CC()
 
 def _session_get() -> str | None:
-    return st.query_params.get(_SESSION_PARAM)
-
+    return _cookie_ctrl.get("st_session")
 
 def _session_set(token: str):
-    st.query_params[_SESSION_PARAM] = token
-
+    _cookie_ctrl.set("st_session", token, max_age=30 * 24 * 3600)
 
 def _session_delete():
-    if _SESSION_PARAM in st.query_params:
-        del st.query_params[_SESSION_PARAM]
+    _cookie_ctrl.remove("st_session")
 
 
 # ─────────────────────────────────────────────
