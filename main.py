@@ -511,6 +511,80 @@ def _set_status(ph, text: str):
     )
 
 
+@st.fragment
+def _input_settings():
+    """STEP 2 + STEP 3 をフラグメント化 — ボタン選択でページ全体を rerun しない"""
+
+    def _on_diff_click(key, sel):
+        if key == "all":
+            st.session_state["diff_cb_all"] = True
+            for i in range(1, 6):
+                st.session_state[f"diff_cb_{i}"] = True
+        else:
+            st.session_state[f"diff_cb_{key}"] = not sel
+            st.session_state["diff_cb_all"] = all(
+                st.session_state.get(f"diff_cb_{i}", False) for i in range(1, 6)
+            )
+
+    # ② 難易度フィルターカード
+    with st.container(border=True):
+        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
+        _diff_opts = [
+            ("all", "すべて", "", "すべての難易度を対象にします"),
+            (1, "★1", "超低コスト ⓘ", DIFFICULTY[1]["desc"]),
+            (2, "★2", "低コスト ⓘ",   DIFFICULTY[2]["desc"]),
+            (3, "★3", "中コスト ⓘ",   DIFFICULTY[3]["desc"]),
+            (4, "★4", "高難度 ⓘ",     DIFFICULTY[4]["desc"]),
+            (5, "★5", "超高難度 ⓘ",   DIFFICULTY[5]["desc"]),
+        ]
+        _dc = st.columns(6)
+        for _col, (_key, _main, _sub, _help) in zip(_dc, _diff_opts):
+            if _key == "all":
+                _sel = st.session_state.get("diff_cb_all", True)
+            else:
+                _sel = st.session_state.get(f"diff_cb_{_key}", False)
+            _lbl = f"**{_main}** {_sub}" if _sub else f"**{_main}**"
+            _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=_on_diff_click, args=(_key, _sel))
+
+    # ③ 詳細設定カード
+    with st.container(border=True):
+        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
+
+        st.markdown("<p style='font-size:13px;color:#888;margin:4px 0 6px'>🔍 類似品レビュー数</p>", unsafe_allow_html=True)
+        _sim_opts = [(0, "0件", "対象商品のみ ⚡約30秒"), (5, "5件", "+40件 約1分"), (10, "10件", "+80件 約1.5分"), (20, "20件", "+160件 約2〜3分")]
+        _sc = st.columns(4)
+        for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
+            _sel = st.session_state.get("sim_count", 5) == _val
+            _col.button(f"**{_main}**", key=f"sim_card_{_val}", help=_sub,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=lambda v=_val: st.session_state.update({"sim_count": v}))
+
+        st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
+        _mode_opts = [
+            ("amazon", "🛒 Amazonのみ", "実レビューのみ収集・高速"),
+            ("gemini", "🔍 AI Web検索込み", "Amazon＋Web全体・大量収集・低速"),
+        ]
+        _mc = st.columns(2)
+        for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
+            _sel = st.session_state.get("review_mode", "amazon") == _val
+            _col.button(f"**{_main}**", key=f"mode_card_{_val}", help=_sub,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=lambda v=_val: st.session_state.update({"review_mode": v}))
+        review_mode = st.session_state.get("review_mode", "amazon")
+        if review_mode == "gemini":
+            st.caption("※ AIがWeb全体（Amazon・ショッピングサイト・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
+
+        if st.session_state.get("gen_btn_loading"):
+            st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="gen_btn")
+        else:
+            if st.button("🔍 アイデアを生成する", use_container_width=True, type="primary", key="gen_btn"):
+                st.session_state["url"] = st.session_state.get("url_input_field", "")
+                st.session_state["gen_btn_loading"] = True
+                st.rerun()  # フラグメント内での st.rerun() はページ全体を rerun する
+
+
 def _show_input():
     if st.session_state.get("gen_btn_loading"):
         _gen_overlay("アイデアを生成中...", "しばらくお待ちください（30〜60秒）")
@@ -546,84 +620,22 @@ def _show_input():
                 st.session_state["url_input_field"] = ""
                 st.rerun()
 
-    # ② 難易度フィルターカード
-    def _on_diff_click(key, sel):
-        if key == "all":
-            st.session_state["diff_cb_all"] = True
-            for i in range(1, 6):
-                st.session_state[f"diff_cb_{i}"] = True
-        else:
-            st.session_state[f"diff_cb_{key}"] = not sel
-            st.session_state["diff_cb_all"] = all(
-                st.session_state.get(f"diff_cb_{i}", False) for i in range(1, 6)
-            )
+    # ② + ③ フラグメント（ボタン選択時はページ全体を rerun しない）
+    _input_settings()
 
-    with st.container(border=True):
-        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
-        _diff_opts = [
-            ("all", "すべて", "", "すべての難易度を対象にします"),
-            (1, "★1", "超低コスト ⓘ", DIFFICULTY[1]["desc"]),
-            (2, "★2", "低コスト ⓘ",   DIFFICULTY[2]["desc"]),
-            (3, "★3", "中コスト ⓘ",   DIFFICULTY[3]["desc"]),
-            (4, "★4", "高難度 ⓘ",     DIFFICULTY[4]["desc"]),
-            (5, "★5", "超高難度 ⓘ",   DIFFICULTY[5]["desc"]),
-        ]
-        _dc = st.columns(6)
-        for _col, (_key, _main, _sub, _help) in zip(_dc, _diff_opts):
-            if _key == "all":
-                _sel = st.session_state.get("diff_cb_all", True)
-            else:
-                _sel = st.session_state.get(f"diff_cb_{_key}", False)
-            _lbl = f"**{_main}** {_sub}" if _sub else f"**{_main}**"
-            _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
-                        type="primary" if _sel else "secondary", use_container_width=True,
-                        on_click=_on_diff_click, args=(_key, _sel))
+    # 生成パイプライン用にセッションステートから読み直す
     _checked = {k: st.session_state.get(f"diff_cb_{k}", False) for k in range(1, 6)}
     if st.session_state.get("diff_cb_all") or not any(_checked.values()):
         selected_diffs = []
     else:
         selected_diffs = [k for k, v in _checked.items() if v]
 
-    # ③ 詳細設定カード（ラジオはフォーム外でcolumns均等配置）
-    with st.container(border=True):
-        st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 3　詳細設定</p>", unsafe_allow_html=True)
-
-        st.markdown("<p style='font-size:13px;color:#888;margin:4px 0 6px'>🔍 類似品レビュー数</p>", unsafe_allow_html=True)
-        _sim_opts = [(0, "0件", "対象商品のみ ⚡約30秒"), (5, "5件", "+40件 約1分"), (10, "10件", "+80件 約1.5分"), (20, "20件", "+160件 約2〜3分")]
-        _sc = st.columns(4)
-        for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
-            _sel = st.session_state.get("sim_count", 5) == _val
-            _col.button(f"**{_main}**", key=f"sim_card_{_val}", help=_sub,
-                        type="primary" if _sel else "secondary", use_container_width=True,
-                        on_click=lambda v=_val: st.session_state.update({"sim_count": v}))
-        sim_count = st.session_state.get("sim_count", 5)
-
-        st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
-        _mode_opts = [
-            ("amazon", "🛒 Amazonのみ", "実レビューのみ収集・高速"),
-            ("gemini", "🔍 AI Web検索込み", "Amazon＋Web全体・大量収集・低速"),
-        ]
-        _mc = st.columns(2)
-        for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
-            _sel = st.session_state.get("review_mode", "amazon") == _val
-            _col.button(f"**{_main}**", key=f"mode_card_{_val}", help=_sub,
-                        type="primary" if _sel else "secondary", use_container_width=True,
-                        on_click=lambda v=_val: st.session_state.update({"review_mode": v}))
-        review_mode = st.session_state.get("review_mode", "amazon")
-        if review_mode == "gemini":
-            st.caption("※ AIがWeb全体（Amazon・ショッピングサイト・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
-
-        if st.session_state.get("gen_btn_loading"):
-            st.button("⏳ 生成中...", disabled=True, use_container_width=True, type="primary", key="gen_btn")
-        else:
-            if st.button("🔍 アイデアを生成する", use_container_width=True, type="primary", key="gen_btn"):
-                st.session_state["url"] = st.session_state.get("url_input_field", "")
-                st.session_state["gen_btn_loading"] = True
-                st.rerun()
-
     if not st.session_state.get("gen_btn_loading"):
         return
     st.session_state["gen_btn_loading"] = False
+
+    sim_count = st.session_state.get("sim_count", 5)
+    review_mode = st.session_state.get("review_mode", "amazon")
 
     url = st.session_state.get("url", "")
     if not url:
