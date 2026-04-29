@@ -1513,7 +1513,7 @@ if user is None:
             if saved_key:
                 st.session_state["api_key"] = saved_key
             _restore_draft(saved_user)
-            user = saved_user
+            st.rerun()
         else:
             # トークン無効・期限切れ → 確定（ログイン画面へ）
             st.session_state["_session_cookie"] = None
