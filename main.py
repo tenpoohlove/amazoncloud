@@ -670,6 +670,7 @@ def _show_input():
     st.session_state["url"]          = url
     st.session_state["stage"]        = "ideas"
     st.session_state["deep_dive_cache"] = {}
+    st.session_state["pdf_cache"] = {}
     _save_draft()
 
     # 履歴に保存
@@ -820,7 +821,7 @@ def _show_analysis():
             st.session_state["stage"] = "ideas"
             st.rerun()
 
-    st.markdown(f"## {icon} No.{idea['id']:02d}　{idea['title']}")
+    st.markdown(f"# {icon} No.{idea['id']:02d}　{idea['title']}")
     st.caption(
         f"難易度: {diff_info['label']} {diff_info['name']}　｜　"
         f"製造コスト: {idea.get('estimated_cost', '—')}"
@@ -940,7 +941,7 @@ def _show_deepdive():
     icon      = _DIFF_ICON.get(diff, "⚪")
     ob        = idea.get("one_belief", {})
 
-    st.markdown(f"## {icon} No.{idea['id']:02d}　{idea['title']}")
+    st.markdown(f"# {icon} No.{idea['id']:02d}　{idea['title']}")
     st.caption(
         f"分析商品: {product_data['title'][:50]}　｜　"
         f"難易度: {diff_info['label']} {diff_info['name']}　｜　"
@@ -1163,9 +1164,6 @@ def _show_deepdive():
                 ):
                     st.session_state["regen_btn_loading"] = True
                     st.rerun()
-
-        st.divider()
-        _render_pdf_button(product_data, idea, deep_dive, "tab_check")
 
     st.divider()
     _render_pdf_button(product_data, idea, deep_dive, "bottom")
