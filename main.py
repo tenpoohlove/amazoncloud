@@ -547,6 +547,17 @@ def _show_input():
                 st.rerun()
 
     # ② 難易度フィルターカード
+    def _on_diff_click(key, sel):
+        if key == "all":
+            st.session_state["diff_cb_all"] = True
+            for i in range(1, 6):
+                st.session_state[f"diff_cb_{i}"] = True
+        else:
+            st.session_state[f"diff_cb_{key}"] = not sel
+            st.session_state["diff_cb_all"] = all(
+                st.session_state.get(f"diff_cb_{i}", False) for i in range(1, 6)
+            )
+
     with st.container(border=True):
         st.markdown("<p style='font-size:16px;font-weight:600;color:#888;letter-spacing:1px;margin:0 0 6px'>STEP 2　難易度フィルター</p>", unsafe_allow_html=True)
         _diff_opts = [
@@ -564,18 +575,9 @@ def _show_input():
             else:
                 _sel = st.session_state.get(f"diff_cb_{_key}", False)
             _lbl = f"**{_main}** {_sub}" if _sub else f"**{_main}**"
-            if _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
-                           type="primary" if _sel else "secondary", use_container_width=True):
-                if _key == "all":
-                    st.session_state["diff_cb_all"] = True
-                    for _i in range(1, 6):
-                        st.session_state[f"diff_cb_{_i}"] = True
-                else:
-                    st.session_state[f"diff_cb_{_key}"] = not _sel
-                    st.session_state["diff_cb_all"] = all(
-                        st.session_state.get(f"diff_cb_{_i}", False) for _i in range(1, 6)
-                    )
-                st.rerun()
+            _col.button(_lbl, key=f"diff_card_{_key}", help=_help,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=_on_diff_click, args=(_key, _sel))
     _checked = {k: st.session_state.get(f"diff_cb_{k}", False) for k in range(1, 6)}
     if st.session_state.get("diff_cb_all") or not any(_checked.values()):
         selected_diffs = []
@@ -591,10 +593,9 @@ def _show_input():
         _sc = st.columns(4)
         for _col, (_val, _main, _sub) in zip(_sc, _sim_opts):
             _sel = st.session_state.get("sim_count", 5) == _val
-            if _col.button(f"**{_main}**", key=f"sim_card_{_val}", help=_sub,
-                           type="primary" if _sel else "secondary", use_container_width=True):
-                st.session_state["sim_count"] = _val
-                st.rerun()
+            _col.button(f"**{_main}**", key=f"sim_card_{_val}", help=_sub,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=lambda v=_val: st.session_state.update({"sim_count": v}))
         sim_count = st.session_state.get("sim_count", 5)
 
         st.markdown("<p style='font-size:13px;color:#888;margin:12px 0 6px'>📝 レビュー収集モード</p>", unsafe_allow_html=True)
@@ -605,10 +606,9 @@ def _show_input():
         _mc = st.columns(2)
         for _col, (_val, _main, _sub) in zip(_mc, _mode_opts):
             _sel = st.session_state.get("review_mode", "amazon") == _val
-            if _col.button(f"**{_main}**", key=f"mode_card_{_val}", help=_sub,
-                           type="primary" if _sel else "secondary", use_container_width=True):
-                st.session_state["review_mode"] = _val
-                st.rerun()
+            _col.button(f"**{_main}**", key=f"mode_card_{_val}", help=_sub,
+                        type="primary" if _sel else "secondary", use_container_width=True,
+                        on_click=lambda v=_val: st.session_state.update({"review_mode": v}))
         review_mode = st.session_state.get("review_mode", "amazon")
         if review_mode == "gemini":
             st.caption("※ AIがWeb全体（Amazon・ショッピングサイト・ブログ等）を検索してレビュー・口コミを収集します。AIによる要約を含みます。商品あたり約100件追加。収集に時間がかかります。")
