@@ -985,13 +985,16 @@ def _show_deepdive():
             )
         st.divider()
         if st.button("🔄 再生成する", key="regen_cf"):
-            with st.spinner("再生成中..."):
-                try:
-                    cache[selected_id] = generate_deep_dive_content(idea, product_data, api_key)
-                    st.session_state["deep_dive_cache"] = cache
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"再生成に失敗しました: {e}")
+            _ph_regen = _gen_overlay("再生成中...", "クラファンページ構成を再生成しています（30〜60秒）")
+            try:
+                cache[selected_id] = generate_deep_dive_content(idea, product_data, api_key)
+                st.session_state["deep_dive_cache"] = cache
+                st.session_state["pdf_cache"] = {k: v for k, v in st.session_state.get("pdf_cache", {}).items() if k != selected_id}
+                _ph_regen.empty()
+                st.rerun()
+            except Exception as e:
+                _ph_regen.empty()
+                st.error(f"再生成に失敗しました: {e}")
 
     with tab_pages:
         st.subheader("📄 クラファンページ構成（10セクション）")
