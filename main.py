@@ -30,32 +30,20 @@ auth.init_db()
 # st.context.cookies は WebSocket 接続確立時のHTTPヘッダーを読む。
 # st.rerun() は既存 WebSocket を使うため新Cookie は届かない。
 # → JS で cookie を書いてフルページリロードするのが唯一の確実な方法。
-# ─────────────────────────────────────────────
-import streamlit.components.v1 as _stc
+_SESSION_PARAM = "s"
 
 
-def _cookie_get(key: str) -> str | None:
-    try:
-        return st.context.cookies.get(key)
-    except Exception:
-        return None
+def _session_get() -> str | None:
+    return st.query_params.get(_SESSION_PARAM)
 
 
-def _cookie_set(key: str, value: str, cookie_key: str = ""):
-    max_age = 30 * 24 * 3600
-    safe_val = value.replace("\\", "\\\\").replace("'", "\\'")
-    cookie_str = f"{key}={safe_val};max-age={max_age};path=/;SameSite=Lax"
-    st.markdown(
-        f'<img src="x" style="display:none" onerror="document.cookie=\'{cookie_str}\'">',
-        unsafe_allow_html=True,
-    )
+def _session_set(token: str):
+    st.query_params[_SESSION_PARAM] = token
 
 
-def _cookie_delete(key: str, cookie_key: str = ""):
-    st.markdown(
-        f'<img src="x" style="display:none" onerror="document.cookie=\'st_session=;max-age=0;path=/;SameSite=Lax\';window.top.location.reload();">',
-        unsafe_allow_html=True,
-    )
+def _session_delete():
+    if _SESSION_PARAM in st.query_params:
+        del st.query_params[_SESSION_PARAM]
 
 
 # ─────────────────────────────────────────────
@@ -1490,13 +1478,13 @@ if reset_token:
 
 user = st.session_state.get("user")
 
-# ログイン直後のクッキー書き込み（st.rerun()後の最初のレンダリングで実行）
+# ログイン直後のセッションパラメータ書き込み
 if "_session_token" in st.session_state:
-    _cookie_set("st_session", st.session_state.pop("_session_token"))
+    _session_set(st.session_state.pop("_session_token"))
 
-# Cookieからの自動ログイン
+# URLパラメータからの自動ログイン
 if user is None:
-    token = _cookie_get("st_session")
+    token = _session_get()
     if token:
         saved_user = auth.validate_session(token)
         if saved_user:
@@ -1626,11 +1614,12 @@ with col_right:
         )
     with rc2:
         if st.button("ログアウト", use_container_width=True):
-            token = _cookie_get("st_session")
+            token = _session_get()
             if token:
                 auth.delete_session(token)
-            _cookie_delete("st_session")
-            st.stop()
+            _session_delete()
+            st.session_state.clear()
+            st.rerun()
 
 st.divider()
 
