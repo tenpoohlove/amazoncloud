@@ -38,8 +38,11 @@ def _session_get() -> str | None:
 def _session_set(token: str):
     max_age = 30 * 24 * 3600
     _stc.html(
-        f"<script>document.cookie='st_session={token};max-age={max_age};path=/;SameSite=Lax';</script>",
-        height=0,
+        f"<script>"
+        f"document.cookie='st_session={token};max-age={max_age};path=/;SameSite=Lax';"
+        f"window.top.location.reload();"
+        f"</script>",
+        height=1,
     )
 
 def _session_delete():
