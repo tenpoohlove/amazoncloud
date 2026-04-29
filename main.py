@@ -26,19 +26,27 @@ load_dotenv()
 auth.init_db()
 
 # ─────────────────────────────────────────────
-# Cookie manager (streamlit-cookies-controller)
-from streamlit_cookies_controller import CookieController as _CC
-
-_cookie_ctrl = _CC()
+# セッション管理（st.context.cookies 読み取り + JS書き込み）
+import streamlit.components.v1 as _stc
 
 def _session_get() -> str | None:
-    return _cookie_ctrl.get("st_session")
+    try:
+        return st.context.cookies.get("st_session")
+    except Exception:
+        return None
 
 def _session_set(token: str):
-    _cookie_ctrl.set("st_session", token, max_age=30 * 24 * 3600)
+    max_age = 30 * 24 * 3600
+    _stc.html(
+        f"<script>document.cookie='st_session={token};max-age={max_age};path=/;SameSite=Lax';</script>",
+        height=0,
+    )
 
 def _session_delete():
-    _cookie_ctrl.remove("st_session")
+    _stc.html(
+        "<script>document.cookie='st_session=;max-age=0;path=/;SameSite=Lax';window.top.location.reload();</script>",
+        height=0,
+    )
 
 
 # ─────────────────────────────────────────────
