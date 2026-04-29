@@ -74,6 +74,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown("""
+<style>
+[data-testid="stToolbar"] { display: none !important; }
+#MainMenu { visibility: hidden !important; }
+footer { visibility: hidden !important; }
+</style>
+""", unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 # セッション初期化
@@ -331,6 +339,7 @@ def show_auth():
         _email = st.session_state.pop("_login_email", "")
         _pass  = st.session_state.pop("_login_pass", "")
         st.session_state["login_loading"] = False
+        import time as _t; _t.sleep(0.8)
         _user, _err = auth.authenticate(_email, _pass)
         if _err:
             st.session_state["login_error"] = _err
