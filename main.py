@@ -49,16 +49,18 @@ footer { visibility: hidden !important; }
 
 # ─────────────────────────────────────────────
 # セッション管理（CookieManager 読み取り + JS書き込み）
-# st.context.cookies は Streamlit Cloud のリバースプロキシ環境では機能しないため
-# extra-streamlit-components の CookieManager (JS → Python) を使用する
+# CookieManager は毎 rerun レンダリングすると余分な rerun が発生しボタン操作に干渉する
+# → _sc_initialized が True になるまでの初回のみレンダリングし、以降は session_state キャッシュを使う
 # ─────────────────────────────────────────────
-_cookie_mgr = stx.CookieManager(key="_cm")
+_cm_value: str | None = None
+if not st.session_state.get("_sc_initialized"):
+    _cookie_mgr = stx.CookieManager(key="_cm")
+    _cm_value = _cookie_mgr.get("st_session") or None
 
 def _session_get() -> str | None:
-    try:
-        return _cookie_mgr.get("st_session") or None
-    except Exception:
-        return None
+    if st.session_state.get("_sc_initialized"):
+        return st.session_state.get("_session_cookie") or None
+    return _cm_value
 
 def _session_set(token: str):
     max_age = 30 * 24 * 3600
@@ -71,6 +73,8 @@ def _session_set(token: str):
     )
 
 def _session_delete():
+    st.session_state.pop("_session_cookie", None)
+    st.session_state.pop("_sc_initialized", None)
     _stc.html(
         "<script>document.cookie='st_session=;max-age=0;path=/;SameSite=Lax';window.top.location.reload();</script>",
         height=0,
@@ -1496,28 +1500,39 @@ if "_session_token" in st.session_state:
     _session_set(st.session_state.pop("_session_token"))
 
 # Cookieからの自動ログイン
-# CookieManager は初回レンダリング時に None を返し、JS 読み取り後に rerun する
-# 初回は "_cm_ready" フラグが未設定 → ローディング画面を表示してログイン画面の一瞬表示を防ぐ
+# _sc_initialized が False の間だけ CookieManager が動作する（初回 2 render のみ）
 if user is None:
     token = _session_get()
     if token:
         saved_user = auth.validate_session(token)
         if saved_user:
             st.session_state["user"] = saved_user
+            st.session_state["_session_cookie"] = token
+            st.session_state["_sc_initialized"] = True
             saved_key = auth.get_user_api_key(saved_user["id"])
             if saved_key:
                 st.session_state["api_key"] = saved_key
             _restore_draft(saved_user)
             user = saved_user
-    elif not st.session_state.get("_cm_ready"):
-        st.session_state["_cm_ready"] = True
-        st.markdown(
-            "<div style='position:fixed;inset:0;background:#111827;"
-            "display:flex;align-items:center;justify-content:center;z-index:9999'>"
-            "<p style='color:#fff;font-size:1.1rem;margin:0'>読み込み中...</p></div>",
-            unsafe_allow_html=True,
-        )
-        st.stop()
+        else:
+            # トークン無効・期限切れ → 確定（ログイン画面へ）
+            st.session_state["_session_cookie"] = None
+            st.session_state["_sc_initialized"] = True
+    elif not st.session_state.get("_sc_initialized"):
+        if not st.session_state.get("_cm_ready"):
+            # 初回レンダー: CookieManager の JS がまだ返っていない → ローディング画面で待機
+            st.session_state["_cm_ready"] = True
+            st.markdown(
+                "<div style='position:fixed;inset:0;background:#111827;"
+                "display:flex;align-items:center;justify-content:center;z-index:9999'>"
+                "<p style='color:#fff;font-size:1.1rem;margin:0'>読み込み中...</p></div>",
+                unsafe_allow_html=True,
+            )
+            st.stop()
+        else:
+            # CookieManager が None を返した → Cookie なし確定
+            st.session_state["_session_cookie"] = None
+            st.session_state["_sc_initialized"] = True
 
 if user is None:
     show_auth()
