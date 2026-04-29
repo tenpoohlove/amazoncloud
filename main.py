@@ -93,6 +93,10 @@ for _k, _v in [
     ("cf_btn_loading", False),
     ("gen_btn_loading", False),
     ("regen_btn_loading", False),
+    ("login_loading", False),
+    ("_login_email", ""),
+    ("_login_pass", ""),
+    ("login_error", ""),
     ("diff_cb_all", True),
     ("diff_cb_1", False),
     ("diff_cb_2", False),
@@ -322,6 +326,23 @@ def show_reset_password_form(token: str):
 # 認証画面（未ログイン時）
 # ─────────────────────────────────────────────
 def show_auth():
+    if st.session_state.get("login_loading"):
+        _gen_overlay("ログイン中...", "しばらくお待ちください")
+        _email = st.session_state.pop("_login_email", "")
+        _pass  = st.session_state.pop("_login_pass", "")
+        st.session_state["login_loading"] = False
+        _user, _err = auth.authenticate(_email, _pass)
+        if _err:
+            st.session_state["login_error"] = _err
+        else:
+            _token = auth.create_session(_user["id"], days=30)
+            st.session_state["user"] = dict(_user)
+            st.session_state["_session_token"] = _token
+            _saved = auth.get_user_api_key(_user["id"])
+            if _saved:
+                st.session_state["api_key"] = _saved
+        st.rerun()
+
     st.title("💡 クラファン新商品アイデアジェネレーター")
     st.markdown("---")
     col_l, col_c, col_r = st.columns([1, 2, 1])
@@ -336,21 +357,16 @@ def show_auth():
                 submitted = st.form_submit_button(
                     "ログイン", use_container_width=True, type="primary"
                 )
+            if st.session_state.get("login_error"):
+                st.error(st.session_state.pop("login_error"))
             if submitted:
                 if not email or not password:
                     st.error("メールアドレスとパスワードを入力してください。")
                 else:
-                    user, err = auth.authenticate(email, password)
-                    if err:
-                        st.error(err)
-                    else:
-                        token = auth.create_session(user["id"], days=30)
-                        st.session_state["user"] = dict(user)
-                        st.session_state["_session_token"] = token
-                        saved_key = auth.get_user_api_key(user["id"])
-                        if saved_key:
-                            st.session_state["api_key"] = saved_key
-                        st.rerun()
+                    st.session_state["_login_email"] = email
+                    st.session_state["_login_pass"]  = password
+                    st.session_state["login_loading"] = True
+                    st.rerun()
 
             st.markdown("---")
             st.markdown("##### パスワードをお忘れですか？")
