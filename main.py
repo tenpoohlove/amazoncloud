@@ -25,31 +25,8 @@ from analyzer import (
 load_dotenv()
 auth.init_db()
 
-# ─────────────────────────────────────────────
-# セッション管理（st.context.cookies 読み取り + JS書き込み）
 import streamlit.components.v1 as _stc
-
-def _session_get() -> str | None:
-    try:
-        return st.context.cookies.get("st_session")
-    except Exception:
-        return None
-
-def _session_set(token: str):
-    max_age = 30 * 24 * 3600
-    _stc.html(
-        f"<script>"
-        f"document.cookie='st_session={token};max-age={max_age};path=/;SameSite=Lax';"
-        f"window.top.location.reload();"
-        f"</script>",
-        height=1,
-    )
-
-def _session_delete():
-    _stc.html(
-        "<script>document.cookie='st_session=;max-age=0;path=/;SameSite=Lax';window.top.location.reload();</script>",
-        height=0,
-    )
+import extra_streamlit_components as stx
 
 
 # ─────────────────────────────────────────────
@@ -69,6 +46,35 @@ st.markdown("""
 footer { visibility: hidden !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# セッション管理（CookieManager 読み取り + JS書き込み）
+# st.context.cookies は Streamlit Cloud のリバースプロキシ環境では機能しないため
+# extra-streamlit-components の CookieManager (JS → Python) を使用する
+# ─────────────────────────────────────────────
+_cookie_mgr = stx.CookieManager(key="_cm")
+
+def _session_get() -> str | None:
+    try:
+        return _cookie_mgr.get("st_session") or None
+    except Exception:
+        return None
+
+def _session_set(token: str):
+    max_age = 30 * 24 * 3600
+    _stc.html(
+        f"<script>"
+        f"document.cookie='st_session={token};max-age={max_age};path=/;SameSite=Lax';"
+        f"window.top.location.reload();"
+        f"</script>",
+        height=0,
+    )
+
+def _session_delete():
+    _stc.html(
+        "<script>document.cookie='st_session=;max-age=0;path=/;SameSite=Lax';window.top.location.reload();</script>",
+        height=0,
+    )
 
 
 # ─────────────────────────────────────────────
@@ -1488,7 +1494,9 @@ user = st.session_state.get("user")
 if "_session_token" in st.session_state:
     _session_set(st.session_state.pop("_session_token"))
 
-# URLパラメータからの自動ログイン
+# Cookieからの自動ログイン
+# CookieManager は初回レンダリング時に None を返し、JS 読み取り後に rerun する
+# 初回は "_cm_ready" フラグが未設定 → ローディング画面を表示してログイン画面の一瞬表示を防ぐ
 if user is None:
     token = _session_get()
     if token:
@@ -1500,6 +1508,15 @@ if user is None:
                 st.session_state["api_key"] = saved_key
             _restore_draft(saved_user)
             user = saved_user
+    elif not st.session_state.get("_cm_ready"):
+        st.session_state["_cm_ready"] = True
+        st.markdown(
+            "<div style='position:fixed;inset:0;background:#111827;"
+            "display:flex;align-items:center;justify-content:center;z-index:9999'>"
+            "<p style='color:#fff;font-size:1.1rem;margin:0'>読み込み中...</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.stop()
 
 if user is None:
     show_auth()
